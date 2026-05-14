@@ -1,0 +1,13 @@
+{
+  "name": "ok-planner",
+  "owner": {
+    "name": "fgc"
+  },
+  "plugins": [
+    {
+      "name": "ok-planner",
+      "source": ".",
+      "description": "Planning, implementation, and review skills for Claude Code"
+    }
+  ]
+}
