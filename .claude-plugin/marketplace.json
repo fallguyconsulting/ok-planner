@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "ok-planner",
-      "source": ".",
+      "source": "./",
       "description": "Planning, implementation, and review skills for Claude Code"
     }
   ]
