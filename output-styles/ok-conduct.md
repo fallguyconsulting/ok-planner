@@ -1,5 +1,5 @@
 ---
-name: fgc-conduct
+name: ok-conduct
 description: Fall Guy Consulting code of conduct for Claude Code agents — layered on top of Claude Code defaults
 keep-coding-instructions: true
 ---
