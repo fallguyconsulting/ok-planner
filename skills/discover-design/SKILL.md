@@ -18,7 +18,7 @@ that resolves the tensions surfaced here.
 
 ## Why this exists
 
-The design log this skill bootstraps is the **canonical noun catalog**
+The design docs this skill bootstraps are the **canonical noun catalog**
 for the project — what concepts exist, what they mean, where their
 boundaries are, what invariants they hold. The relationship between
 design and code is **code references design**, not the other way
@@ -164,7 +164,8 @@ concepts only. Capped at one back-edge per skill invocation.
    the aliases (frontmatter `aliases:`), and the first sentence of
    the `## What it is` section. Write
    `.ok-planner/design/concepts.md` per the format below. This is
-   the one-shot-readable TOC consulted by every design-aware skill;
+   the one-shot-readable TOC consulted by skills that read the
+   design docs (brainstorm, refine-design, merge, review-holistic);
    it lets agents know what concepts exist without reading every
    full concept file. Generated; agents should not edit it by hand.
 
@@ -954,7 +955,7 @@ Agent (general-purpose):
 
 ## The `@concept:` annotation convention
 
-The design log is the canonical source for what each concept means.
+The design docs are the canonical source for what each concept means.
 Code references the design via in-source annotations of the form
 `@concept: <slug>` (mirroring the project's existing
 `@blessed-invariant`, `@source:`, `@diverged:`, `@agent-contract`
@@ -966,7 +967,8 @@ Two artifacts together replace the need for an external index:
 
 - **`.ok-planner/design/concepts.md`** — auto-generated summary
   (this skill produces it). Agents read it in one shot at the top
-  of any design-aware skill invocation to know what concepts exist.
+  of any skill that reads the design docs to know what concepts
+  exist.
 - **`@concept: <slug>` annotations in source** — discoverable by
   `rg '@concept: <slug>'`. Answers both "which concept(s) apply to
   this file?" (read the file) and "where is concept X enforced?"

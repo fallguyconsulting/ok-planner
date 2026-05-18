@@ -26,16 +26,15 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 ## Process
 
 1. **Initialize layout** -- invoke `ok-planner:init` so `.ok-planner/specs/` exists before any writing starts.
-2. **Establish the goal** -- if context from the conversation makes it clear what to brainstorm, proceed. Otherwise ask the user what they want to design. If invoked from `ok-planner:refine-design`, the goal has already been established in the conversation (a brief naming the tensions to resolve, the picked resolution shapes, the affected concept files, and the code paths needing reconciliation) — recognize that brief as the goal and proceed.
-3. **Explore project context** -- check files, docs, recent commits
+2. **Establish the goal** -- if context from the conversation makes it clear what to brainstorm, proceed. Otherwise ask the user what they want to design. If invoked from `ok-planner:refine-design`, the goal has already been established in the conversation (a brief naming: the session's tension queue with picked resolution shapes, any tensions rejected during intake, affected concept files, code paths needing reconciliation, review-notes outcomes, and a proposed spec slug) — recognize that brief as the goal and proceed. Every item in the brief that touches the design docs must end up under `## Design changes` in the spec.
+3. **Explore project context** -- check files, docs, recent commits, and (if it exists) the design docs under `.ok-planner/design/` to understand "how the project is now"
 4. **Ask clarifying questions** -- one at a time, prefer multiple choice
 5. **Propose 2-3 approaches** -- with trade-offs and your recommendation
-6. **Present design** -- scaled to complexity, get user approval section by section
-7. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`
+6. **Present design** -- scaled to complexity, get user approval section by section. Surface any design-doc impacts (concept additions/mutations, tension resolutions or new tensions) as part of the discussion; they go into the spec, not into the design docs directly.
+7. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`. If the work touches the design docs, include a `## Design changes` section enumerating the mutations execute-plan will apply.
 8. **Spec review** -- dispatch reviewer subagent, fix issues, re-review until clean
 9. **User reviews spec** -- ask user to review before proceeding
-10. **Update design log** -- if the spec has a `## Tensions resolved` section (refine-design-originated), skip; the impacts are already recorded. If `.ok-planner/design/concepts/` does not exist, skip silently — the design log is opt-in, and projects that haven't bootstrapped one are not waiting to be told about it. Otherwise, walk candidate concept-impacts and tension-impacts with the user and apply them to `.ok-planner/design/concepts/` and `.ok-planner/design/tensions/` per `discover-design`'s templates. Skip entirely if the spec produced no design impacts.
-11. **Transition** -- invoke ok-planner:write-plan
+10. **Transition** -- invoke ok-planner:write-plan
 
 ## What a spec is
 
@@ -65,10 +64,16 @@ user owns that.
 - Cover: architecture, components, data flow, error handling, testing
 - YAGNI ruthlessly
 
-## Design log awareness
+## Design docs awareness (read-only)
 
 If `.ok-planner/design/concepts/` exists, it is the project's
-canonical concept catalog. During step 3 (Explore project context):
+canonical concept catalog and a source of truth equal in weight
+to the code. **Brainstorm is read-only against the design docs.**
+Mutations happen later, via `execute-plan` carrying out a
+spec-directed plan. Read the docs now; capture changes in the
+spec; let the pipeline apply them.
+
+During step 3 (Explore project context):
 
 1. Read `.ok-planner/design/concepts.md` — the auto-generated TOC,
    always small, always one-shot-readable. Now you know what
@@ -77,20 +82,25 @@ canonical concept catalog. During step 3 (Explore project context):
    (`rg '@concept:' <path>`). Each marks a load-bearing site.
 3. Read `concepts/<slug>.md` in full for any concept surfaced by
    step 1 or 2 that the brainstorm's subject area touches.
+4. Check `.ok-planner/design/tensions/` for open tensions in the
+   same area — they may already describe the muddiness the
+   brainstorm wants to address, in which case the user might want
+   to run `/refine-design` for those tensions instead of (or
+   alongside) this brainstorm.
 
-Use the catalog's terms in the design, respect its stated boundaries
-and invariants, and surface as a concept-impact (or tension-impact)
-anything the design would change about a concept's shape.
+Use the catalog's terms in the design and respect its stated
+boundaries and invariants. If the design would change a concept's
+shape, add a new concept, retire one, or resolve/raise a tension,
+capture that as a `## Design changes` entry in the spec (see
+"Capturing design changes in the spec" below). Do not mutate
+`concepts/`, `tensions/`, or any other file under
+`.ok-planner/design/` during brainstorm — those are execute-plan's
+to touch.
 
-Also check `.ok-planner/design/tensions/` for open tensions in the
-same area — they may already describe the muddiness the brainstorm
-wants to address, in which case the user might want to run
-`/refine-design` for those tensions instead of (or alongside) this
-brainstorm.
-
-If neither directory exists, this skill operates as it does today.
-Do not create them as a side effect; do not suggest
-`/discover-design` unless the user asks.
+If `.ok-planner/design/concepts/` doesn't exist, this skill
+operates without the design-docs context. Do not create it as a
+side effect; do not suggest `/discover-design` unless the user
+asks.
 
 ## Working in Existing Codebases
 
@@ -98,103 +108,156 @@ Do not create them as a side effect; do not suggest
 - Where existing code has problems that affect the work, include targeted improvements
 - Don't propose unrelated refactoring
 
-## After Approval
+## Capturing design changes in the spec
 
-Write the spec to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md` (user preferences override this path). Dispatch a spec reviewer subagent:
+If the work touches the design docs, the spec must say so
+explicitly under a `## Design changes` section. Brainstorm does
+**not** mutate `.ok-planner/design/` directly — the design docs
+are a source of truth with the same weight as code, and like
+code they change only through plan execution. Capturing changes
+in the spec lets `write-plan` turn them into first-class plan
+tasks and `execute-plan` apply them alongside the code.
 
-```
-Agent (general-purpose):
-  Read the spec at [path]. Check for:
-  - Completeness (TODOs, placeholders, incomplete sections)
-  - Internal consistency (contradictions, conflicting requirements)
-  - Clarity (ambiguity that could cause wrong implementation)
-  - YAGNI (unrequested features)
-  Flag any PR, commit, branch, deployment, release, or rollout instructions
-  — specs cover what to build, not how to ship it. Flag any indication that
-  the work has been split across multiple specs.
-  Only flag issues that would cause real problems during implementation.
-  Report: Approved | Issues Found (with specifics)
-```
+If `.ok-planner/design/concepts/` does not exist, skip this
+section entirely — the project has not bootstrapped design docs
+and this brainstorm is not the place to do it. Do not mention
+the absence; do not suggest `/discover-design` unless the user
+asks.
 
-Fix issues, re-review until clean. Then ask user to review the written spec.
+While presenting the design (step 6), identify two kinds of
+impact:
 
-## After User Approval — Update the Design Log
-
-Specs frequently touch the project's concept catalog or surface new
-questions about a concept's boundary. The durable design log under
-`.ok-planner/design/` is the place to record those touches.
-Reviewers consult that log to distinguish design choices from
-defects, so capturing what a spec says about concepts is what gives
-the log its convergence value.
-
-**If the spec contains a `## Tensions resolved` section** (the marker
-that this brainstorm was invoked via `refine-design`): the
-design-impact decisions have already been made by the user during
-refine-design's intake and are recorded in that section. Skip the
-walkthrough below — execute-plan applies the recorded mutations.
-Continue to the Transition step.
-
-For any other spec, walk it section by section and identify two
-kinds of impact:
-
-**Concept impacts** — the spec sharpens, splits, merges, or
-introduces a concept. Candidate belongs as a concept update if it
-meets ANY of these:
+**Concept impacts** — the spec sharpens, splits, merges,
+introduces, or retires a concept. Candidate if ANY of these:
 - It introduces a new load-bearing noun the project did not have.
 - It changes the boundary of an existing concept (what's in vs.
   what's now in a neighbor).
-- It retires a concept, or retires an alias that should no longer be
-  used.
+- It retires a concept, or retires an alias that should no longer
+  be used.
+- It mutates Definition / Purpose / Boundaries / Invariants of
+  an existing concept.
 
-**Tension impacts** — the spec surfaces unresolved questions about
-how concepts should fit together. Candidate belongs as a tension if
-it meets ANY of these:
-- It describes a choice between alternatives that the spec itself
-  doesn't resolve (left for later).
-- It exposes inconsistency or overloading the team had not yet
-  catalogued.
-- It declares a tradeoff explicitly but acknowledges the tradeoff is
-  not fully understood.
+**Tension impacts** — the spec touches the tensions catalog.
+Candidate if ANY of these:
+- It resolves an open tension (record which one and how).
+- It surfaces a new tension the project should catalog (a choice
+  the spec doesn't resolve, an inconsistency, an
+  acknowledged-but-unresolved tradeoff).
 
 A candidate does NOT belong if it's a purely local implementation
 detail. The bar: would a reviewer benefit from knowing this when
 forming findings?
 
-If `.ok-planner/design/concepts/` does not exist, skip this whole
-section silently. The design log is opt-in; brainstorm works fine
-without it, and projects that haven't bootstrapped one are not
-waiting to be told about it. Do not mention the absence to the user
-or suggest `/discover-design` unless they ask about it. Do not
-create the directory as a side effect — bootstrapping is its own
-walkthrough.
+Walk each candidate with the user — confirm-as-is / edit /
+reject. For accepted candidates, write a `## Design changes`
+section in the spec with one bullet per change, each precise
+enough that execute-plan can apply it mechanically. Example:
 
-For each concept candidate:
+```
+## Design changes
 
-1. Walk it with the user — confirm-as-is / edit / reject.
-2. If accepted and it represents a resolved change (the spec is
-   prescriptive about the concept), mutate the relevant
-   `.ok-planner/design/concepts/<slug>.md` in place. Append a Notes
-   entry citing the spec slug. If the concept doesn't exist yet,
-   write a new file using the template defined in
-   `ok-planner:discover-design`'s SKILL.md (Concept template).
-3. If accepted but the change is still tentative, write a tension
-   entry instead (next paragraph).
+- Concept: mutate `concepts/store.md` in place. Replace the
+  Boundaries section with: ... (full new text). Append a Notes
+  entry: `<date> — Boundary narrowed per spec <spec-slug> to
+  exclude in-memory mocks.`
+- Concept: create `concepts/claim-producer.md` from the template
+  in `ok-planner:discover-design`'s SKILL.md, with Definition: ...,
+  Purpose: ..., Boundaries: ..., Invariants: ....
+- Tension: resolve `tensions/store-vs-claim-producer.md`. Move
+  the file to `tensions/_resolved/store-vs-claim-producer.md`
+  with `status: resolved` and a `resolution:` block summarizing
+  the outcome (the resolution shape is: ...).
+- Tension: create `tensions/cache-invalidation.md` from the
+  template in `ok-planner:discover-design`'s SKILL.md, with
+  status: open and the muddiness described as: ....
+```
 
-For each tension candidate:
+If the spec produced no design-doc impacts (small specs often
+won't), don't add a `## Design changes` section.
 
-1. Walk it with the user — confirm-as-is / edit / reject.
-2. If accepted, write a new file at
-   `.ok-planner/design/tensions/<slug>.md` using the Tension
-   template documented in `ok-planner:discover-design`'s SKILL.md
-   (frontmatter with `tension` / `category` / `status: open` /
-   `affects`, plus What is muddy / Why it matters / Resolution
-   candidates / Evidence sections).
+## Writing the spec and reviewing it
 
-If the spec produced no concept or tension impacts (small specs
-often won't), say so explicitly and skip to the transition step
-rather than padding with placeholders.
+Write the spec to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md` (user preferences override this path). Dispatch a spec reviewer subagent:
+
+```
+Agent (general-purpose):
+  Read the spec at [path].
+
+  ## Ground every claim in source code
+
+  Before checking the spec internally, verify it against the codebase.
+  Hallucinated current-state is the most expensive failure
+  downstream — a spec that confidently references things that do
+  not exist sends an implementer chasing ghosts. Catch it here.
+
+  - Read every file path the spec names. If a path does not exist
+    and the spec does not mark it as new, flag it with the path.
+  - For every function, class, module, type, table, endpoint, or
+    other named entity the spec references as existing, find it
+    (`rg`, `grep`, or direct read). If it does not exist, or its
+    actual shape differs materially from what the spec assumes,
+    flag it with file:line.
+  - For every "currently X" / "today the code does Y" /
+    "the existing Z" assertion, verify against the actual code.
+    Flag any that do not match, citing the file and what is
+    actually there.
+
+  If you find one such issue, keep looking — they cluster.
+
+  ## Check against the design docs (if present)
+
+  If `.ok-planner/design/concepts/` exists, consult it. Brainstorm
+  is where specs are written against the design docs, so this
+  review is the natural place to catch mismatches before the spec
+  is approved. Downstream skills do not re-check the spec against
+  the design docs.
+
+  1. Read `.ok-planner/design/concepts.md` (the TOC).
+  2. For concepts the spec touches by name or by area, read
+     `concepts/<slug>.md` in full.
+  3. Check `.ok-planner/design/tensions/` for open tensions in the
+     same area.
+
+  Flag:
+  - The spec uses a load-bearing noun differently than its concept
+    file defines it (or aliases over a documented term without
+    saying so).
+  - The spec proposes work that would violate a stated invariant
+    or cross a stated boundary, without addressing the change in
+    a `## Design changes` section.
+  - The spec resolves or contradicts an open tension without a
+    `## Design changes` entry that records the resolution and
+    moves the tension file appropriately.
+  - The spec introduces a new load-bearing noun without a
+    `## Design changes` entry creating the concept file.
+  - A `## Design changes` section exists but is incomplete (e.g.,
+    references a concept mutation without saying which file or
+    what changes) — execute-plan needs precise instructions.
+
+  If `.ok-planner/design/concepts/` does not exist, skip this
+  section.
+
+  ## Spec quality checks
+
+  After grounding, check the spec for:
+  - Completeness (TODOs, placeholders, incomplete sections)
+  - Internal consistency (contradictions, conflicting requirements)
+  - Clarity (ambiguity that could cause wrong implementation)
+  - YAGNI (unrequested features)
+
+  Flag any PR, commit, branch, deployment, release, or rollout
+  instructions — specs cover what to build, not how to ship it.
+  Flag any indication that the work has been split across multiple
+  specs.
+
+  Only flag issues that would cause real problems during
+  implementation.
+
+  Report: Approved | Issues Found (with specifics)
+```
+
+Fix issues, re-review until clean. Then ask user to review the written spec.
 
 ## Transition
 
-Once the spec is approved AND any design log entries are written,
-invoke ok-planner:write-plan.
+Once the spec is approved, invoke ok-planner:write-plan.

@@ -59,10 +59,12 @@ Agent (general-purpose):
   ### Your Job
 
   Look for FIVE classes of finding. The first four are equally
-  important; the fifth (Questions) is for plausibly-design judgment
-  calls that you'd want a human's read on before acting. Don't rank
-  within a class. Don't grade by severity. List flat findings under
-  each class.
+  important and can be fixed mechanically by `review-cleanup`. The
+  fifth class is user-routed — it covers plausibly-design judgment
+  calls AND findings that would require modifying the design docs
+  (which only change through plan execution, not via review-cleanup).
+  Don't rank within a class. Don't grade by severity. List flat
+  findings under each class.
 
   #### 1. Real issues (anywhere in the codebase)
 
@@ -136,30 +138,42 @@ Agent (general-purpose):
   - Variable shadowing of language builtins introduced by recent
     additions.
 
-  #### 5. Questions (plausibly intentional)
+  #### 5. Questions and design-doc findings (user-routed)
 
-  Findings where you suspect something is wrong but it could plausibly
-  be a deliberate design choice you don't have context for. Surface
-  them so the user sees them, but they are NOT for auto-fix.
+  Findings that require user input rather than auto-fix. Two
+  kinds belong here:
 
-  Use this class for:
+  **5a. Plausibly intentional.** Findings where you suspect
+  something is wrong but it could plausibly be a deliberate
+  design choice you don't have context for:
   - "Could be inlined" / "could be flattened" / "could be unified"
     judgment calls where the helper / abstraction's justification
     depends on intent rather than provable wrongness.
-  - Extracted-too-early concerns where the extraction might document
-    an authorial intent you can't see.
+  - Extracted-too-early concerns where the extraction might
+    document an authorial intent you can't see.
   - Naming-convention concerns where the convention itself is
     debatable.
   - Dead-looking code that might document a deliberate negative
     choice (the constant exists so a test pins the rejection, the
     interface is a forward-compat seam, etc.).
-  - Findings where you read the design-log Notes section and the
+  - Findings where you read the design-docs Notes section and the
     Notes neither support nor refute your concern.
 
-  The bar: "if I had to defend this in front of someone who designed
-  it, what would they likely say?" If a plausible defense exists, the
-  finding goes here. If no plausible defense exists, it's a real
-  finding in classes 1-4.
+  The bar: "if I had to defend this in front of someone who
+  designed it, what would they likely say?" If a plausible defense
+  exists, the finding goes here. If no plausible defense exists,
+  it's a real finding in classes 1-4.
+
+  **5b. Design-doc findings.** Findings whose fix requires
+  modifying a file under `.ok-planner/design/` (a concept that's
+  wrong, a missing tension entry, an outdated boundary). Design
+  docs only change through plan execution, so these cannot be
+  auto-fixed — they need the user to take them through
+  `/brainstorm` or `/refine-design` to produce a reconciliation
+  spec.
+
+  State the finding clearly: which file under `design/`, what's
+  wrong, and what the user would need to capture in a spec.
 
   ### Project conventions
 
@@ -171,13 +185,15 @@ Agent (general-purpose):
   fixes over backwards-compat shims. If the repo says break freely,
   surface backwards-compat shims as Class-2 findings.
 
-  ### Implementation notes and design log (required reading)
+  ### Divergence reports and design docs (required reading)
 
   Before forming any findings, you MUST read:
 
-  - Every `*-notes.md` file under `.ok-planner/plans/` in full.
-    These record deliberate deviations from each plan as it was
-    executed.
+  - Every `*-divergences.md` file under `.ok-planner/plans/` and
+    `.ok-planner/history/plans/` in full. These are the divergence
+    auditor's record of where each implementation differed from
+    its plan — useful context for understanding the shape of the
+    code as it stands.
   - **`.ok-planner/design/concepts.md` (if it exists)** — the
     auto-generated TOC of the project's canonical concept
     catalog. Holistic review is whole-codebase scope, so the TOC
@@ -222,7 +238,7 @@ Agent (general-purpose):
   done this differently."
 
   If `.ok-planner/design/concepts/` or `tensions/` does not exist,
-  this project hasn't bootstrapped a design log. Form findings
+  this project hasn't bootstrapped design docs. Form findings
   normally; do not propose creating the directories as a side
   effect.
 
@@ -251,9 +267,11 @@ Agent (general-purpose):
     until you're sure, then put it in the right class.
   - Don't put findings in classes 1-4 if a concept file
     (`.ok-planner/design/concepts/<slug>.md`) documents the shape
-    as deliberate. If the concept itself is wrong, your finding is
-    "the concept at concepts/<slug>.md is wrong" — Class 1 against
-    the concept file, not Class 1 against the code.
+    as deliberate. If the concept itself is wrong, the finding
+    routes to **Class 5**, not Class 1 — design docs cannot be
+    auto-fixed because they change only through plan execution.
+    The user has to take the finding through `/brainstorm` or
+    `/refine-design` to produce a reconciliation spec.
   - Don't re-file a finding that matches an open tension entry
     (`.ok-planner/design/tensions/<slug>.md`). Note the tension
     slug alongside the finding and move on; the tension is the
@@ -317,10 +335,13 @@ Agent (general-purpose):
   - file:line — what should not have been added/changed.
   - ...
 
-  ## 5. Questions (plausibly intentional)
+  ## 5. Questions and design-doc findings (user-routed)
 
-  - file:line — what you noticed, the plausible design defense you
-    can imagine, and what would tip the balance toward "real issue."
+  - file:line — what you noticed. For 5a (plausibly intentional):
+    the plausible design defense you can imagine and what would
+    tip the balance toward "real issue." For 5b (design-doc
+    finding): which file under `.ok-planner/design/` is affected
+    and what a reconciliation spec would need to capture.
   - ...
   ```
 
@@ -343,13 +364,16 @@ Split the reviewer's output by class:
   or rebut findings yourself. Do NOT include class 5 in the
   review-cleanup input — the fixer treats input as
   fix-mechanically; class-5 findings need human judgment first.
-- **Class 5 (Questions).** Surface verbatim to the user. Do not
-  invoke review-cleanup on these. The user walks each one and
-  decides whether to fix, defer, or document the choice in the
-  design log. After user input, any items the user routed to "fix"
-  go to a follow-up review-cleanup pass with explicit fix
-  directives; items the user routed to "design choice" become
-  candidates for `.ok-planner/design/` entries.
+- **Class 5 (Questions and design-doc findings).** Surface
+  verbatim to the user. Do not invoke review-cleanup on these.
+  The user walks each one and decides:
+  - **5a items**: fix, defer, or document the choice. Items the
+    user routes to "fix" go to a follow-up review-cleanup pass
+    with explicit fix directives.
+  - **5b items**: design docs only change through plan execution,
+    so the path forward is a follow-up `/brainstorm` or
+    `/refine-design` session that produces a reconciliation spec.
+    review-holistic does not write to the design docs itself.
 
 If both classes are present, run review-cleanup on classes 1-4 to
 completion FIRST, then walk the class-5 questions with the user. This

@@ -11,7 +11,7 @@ their artifacts. Idempotent: re-running is a no-op.
 
 ## Why this skill exists
 
-ok-planner artifacts (specs, plans, sketches, implementation notes) are
+ok-planner artifacts (specs, plans, sketches, divergence reports) are
 **workflow scratch**, not project documentation. They describe how a piece
 of work was conceived and executed at a point in time — they are not
 intended to be kept in sync with the codebase as it evolves.
@@ -28,11 +28,15 @@ produce or move artifacts:
 - `brainstorm` — before writing a spec
 - `sketch` — before writing a sketch
 - `write-plan` — before writing a plan
-- `execute-plan` — before creating the implementation notes
-  file, and again before archiving on completion
+- `execute-plan` — before dispatching the implementer, and again
+  before archiving the plan on completion
 
-Also safe for the user to invoke directly via `/init` if they want the
-layout created without starting a workflow.
+Also safe for the user to invoke directly:
+- `/init` — ensure the layout exists. Idempotent.
+- `/init --refresh` — refresh the embedded `.ok-planner/CLAUDE.md`
+  template to match the current skill set. Use when the ok-planner
+  skills have been updated and the CLAUDE.md in the project
+  predates the new framing. See "Refreshing CLAUDE.md" below.
 
 ## Layout
 
@@ -40,9 +44,10 @@ layout created without starting a workflow.
 .ok-planner/
   CLAUDE.md          # tells agents how to treat this folder; written by this skill
   specs/             # active specs (from brainstorm) — workflow scratch
-  plans/             # active plans + their -notes.md (from write-plan, execute-*) — workflow scratch
+  plans/             # active plans + their -divergences.md (from write-plan, execute-*) — workflow scratch
   sketches/          # design sketches (from sketch) — workflow scratch
-  design/            # durable design log; managed by /discover-design + /refine-design + /merge
+  design/            # durable design docs; bootstrapped by /discover-design,
+                     # mutated only by /execute-plan via spec-directed plan tasks
                      # substructure created by /discover-design:
                      #   _discover/        as-is scaffolding
                      #   concepts/         load-bearing nouns (definition, purpose, boundaries, invariants)
@@ -50,15 +55,15 @@ layout created without starting a workflow.
                      #   review-notes.md   agent-confessed uncertainty for /refine-design
   history/
     specs/           # archived specs (after plan execution completes) — workflow scratch
-    plans/           # archived plans + notes (after plan execution completes) — workflow scratch
+    plans/           # archived plans + divergence reports (after plan execution completes) — workflow scratch
 ```
 
 Most subdirectories are workflow scratch — point-in-time records of how
 something was conceived. The `design/` subdirectory is the exception:
-it's the durable design log — a concept catalog plus tensions, intended
-to be consulted during review and to outlive any one plan. The embedded
-`CLAUDE.md` explains this distinction so future agents treat the
-directories correctly.
+it's the durable design docs — a concept catalog plus tensions, a
+source of truth with the same weight as code. Mutated only through
+plan execution. The embedded `CLAUDE.md` explains this distinction
+so future agents treat the directories correctly.
 
 ## Process
 
@@ -77,11 +82,24 @@ directories correctly.
 
    Use `mkdir -p` so existing directories are left untouched.
 
-3. If `.ok-planner/CLAUDE.md` does not exist, write it with the content
-   below. If it already exists, leave it alone — the user may have
-   customized it. The point of this file is to give any agent that
-   wanders into `.ok-planner/` an explicit, in-folder instruction to
-   leave it alone.
+3. Handle `.ok-planner/CLAUDE.md`:
+
+   **Default (no `--refresh` argument).** If the file does not exist,
+   write it with the content below. If it already exists, leave it
+   alone — the user may have customized it. Then check the existing
+   file for stale-framing markers (see "Refreshing CLAUDE.md"); if
+   any are found, surface a one-line notification suggesting
+   `/init --refresh`. The notification does not block the rest of
+   init from finishing.
+
+   **With `--refresh` argument.** Regenerate the CLAUDE.md from the
+   template, show the user a diff against the existing file, and
+   only overwrite with the user's explicit confirmation. See
+   "Refreshing CLAUDE.md" below for the full flow.
+
+   The point of this file is to give any agent that wanders into
+   `.ok-planner/` an explicit, in-folder instruction to leave it
+   alone.
 
    ````markdown
    # .ok-planner — mostly workflow folder, with one durable subdirectory
@@ -94,13 +112,15 @@ directories correctly.
    executed. Not living documentation of the codebase. Drift between
    these files and the current code is expected.
 
-   **Durable design log** (`design/`): the project's canonical noun
-   catalog — load-bearing concepts with definitions, purposes,
-   boundaries, and invariants — plus a tensions catalog tracking what
-   is unresolved. Code references the design (via `@concept:` or
-   equivalent annotations at points of enforcement), not the other
-   way around. Intended to be consulted during code review and to
-   outlive any single plan. NOT scratch.
+   **Durable design docs** (`design/`): the project's canonical
+   noun catalog — load-bearing concepts with definitions, purposes,
+   boundaries, and invariants — plus a tensions catalog tracking
+   what is unresolved. Code references the design (via `@concept:`
+   or equivalent annotations at points of enforcement), not the
+   other way around. The design docs are **a source of truth with
+   the same weight as code**: they describe the project as it
+   stands. Like code, they change only through plan execution —
+   `execute-plan` is the one skill that mutates them. NOT scratch.
 
    ## Default behavior for agents
 
@@ -124,7 +144,7 @@ directories correctly.
    - **Do not edit, rename, move, or delete files here on your own
      initiative**, even if they look stale, redundant, or wrong.
 
-   ## When it is OK to touch the workflow scratch
+   #### When it is OK to touch the workflow scratch
 
    - The user explicitly asks (e.g. "update the spec at
      .ok-planner/specs/foo.md", "what did we decide about X — check
@@ -135,52 +155,91 @@ directories correctly.
    In those cases, do exactly what the user or skill asked, then stop.
    Do not expand the scope to "while I'm in here, I'll also fix..."
 
-   ### Durable design log (`design/`)
+   ### Durable design docs (`design/`)
 
    The `design/` subdirectory is **the exception**. It holds the
    project's canonical concept catalog — load-bearing nouns with
    definitions, purposes, boundaries, and invariants — plus a
-   tensions catalog tracking what's still muddy. These are intended
-   to be consulted — actively — during code review, when forming
-   review findings, when weighing whether something is a defect or a
-   stated boundary of a concept.
+   tensions catalog tracking what's still muddy.
+
+   **Design docs change only through plan execution, like code.**
+   The reason: if the design docs and the code can change
+   independently, they drift, and the project ends up in an
+   inconsistent state. To prevent that, *all* design-doc changes
+   ride the same pipeline as code — a spec captures the change,
+   `write-plan` turns it into tasks, and `execute-plan` applies it.
+
+   Skills relate to the design docs in three modes:
+
+   1. **Modifier**: `execute-plan` is the one skill that mutates
+      the design docs, carrying out plan tasks that the spec
+      directs. (`discover-design` is the bootstrap exception: it
+      creates initial design docs for a project that has none, or
+      extends the catalog when new areas are discovered. It does
+      not modify existing user-edited content.)
+
+   2. **Read-only oracle**: `review-holistic` reads the design
+      docs as sacrosanct and uses them to drive whole-codebase
+      convergence. There is no per-scope spec for that kind of
+      review, so the design docs themselves are the source of
+      truth.
+
+   3. **Read-only consumers**: every other skill reads the design
+      docs without writing.
+      - `brainstorm` and `refine-design` read them to understand
+        "how the project is now," and capture any needed changes
+        **in the spec they produce** (under a `## Design changes`
+        section). The changes get applied later, by
+        `execute-plan`.
+      - `merge` reads the docs against a fresh merge or rebase
+        and **surfaces findings** for the user — mechanical
+        issues, drift, semantic conflicts. Resolution is
+        human-driven and goes through the spec pipeline; merge
+        does not write fixes to the design docs itself.
+      - `write-plan` reads to plan spec-directed mutations as
+        first-class tasks.
+      - `review-work` and `review-plan` read to verify that
+        spec-directed mutations landed correctly.
 
    Layout (created by `/discover-design`):
    - `_discover/` — as-is scaffolding. Wide, detailed, possibly
      redundant. Discarded once the design stabilizes.
-   - `concepts/` — one concept per file. Mutable in body; Notes
-     section is append-only.
-   - `tensions/` — one tension per file. Resolved by
-     `/refine-design`; resolved tensions move to
-     `tensions/_resolved/`.
+   - `concepts/` — one concept per file. Mutated in place by
+     `execute-plan` per the spec's `## Design changes` section;
+     Notes section is append-only.
+   - `tensions/` — one tension per file. Tensions move to
+     `tensions/_resolved/` when `execute-plan` carries out a
+     resolution-bearing spec.
    - `review-notes.md` — agent-confessed uncertainty from the
      `/discover-design` run (judgment calls, suspected concepts,
      unresolved fix-loop issues). Consumed by `/refine-design`;
      not durable.
 
-   - **DO consult `design/concepts/` when reviewing code.** A finding
-     that contradicts a documented boundary or invariant needs an
-     explicit "the documented concept is wrong because..." rather
-     than a flag against the code.
-   - **Concept files (`concepts/<slug>.md`) are MUTABLE.** Editing
-     Definition / Purpose / Boundaries / Invariants in place is the
-     normal mode — this is the prescriptive design, not an ADR
-     journal. The Notes section is the append-only audit trail; each
-     tension resolution adds a Notes entry. Mutations happen during
-     `execute-plan` of a refine-design-originated spec, ride alongside
-     the code changes that conform to them, and stay reversible until
+   - **`review-holistic` consults `design/concepts/`** when forming
+     judgments — a finding that contradicts a documented boundary
+     or invariant needs an explicit "the documented concept is
+     wrong because..." rather than a flag against the code.
+     `brainstorm` and `refine-design` consult to understand current
+     state; the spec captures any needed changes. Other skills do
+     not consult as oracle.
+   - **Concept files (`concepts/<slug>.md`) are MUTABLE during
+     `execute-plan`.** Editing Definition / Purpose / Boundaries /
+     Invariants in place is the normal mode — this is the
+     prescriptive design, not an ADR journal. The Notes section is
+     the append-only audit trail. Mutations ride alongside the
+     code changes that conform to them and stay reversible until
      the plan executes.
-   - **DO NOT delete concept files on your own initiative**, even if
-     they look stale. Use `/merge` to surface drift; the user
-     decides whether to retire a concept or fold it into another.
-   - **DO NOT mutate `tensions/` entries except via `/refine-design`**
-     or by explicit user request — those entries record what the
-     project considers unresolved.
+   - **DO NOT delete concept files on your own initiative**, even
+     if they look stale. Use `/merge` to surface drift; resolution
+     goes through the spec pipeline.
+   - **DO NOT mutate `tensions/` entries outside the spec
+     pipeline** — those entries record what the project considers
+     unresolved.
 
-   ## Consulting the design log: read `concepts.md` first
+   #### Consulting the design docs: read `concepts.md` first
 
-   When the design log exists, any agent working on the project's
-   code (regardless of which skill is active) should:
+   When `review-holistic`, `brainstorm`, or `refine-design` is
+   reading the design docs, the lookup pattern is:
 
    1. **Read `.ok-planner/design/concepts.md` first** — a small
       auto-generated TOC of every concept with a one-sentence
@@ -195,51 +254,112 @@ directories correctly.
       (purpose, boundaries, invariants) for any concept surfaced
       by step 1 or 2 that's load-bearing for the work at hand.
 
-   ## Annotate-on-consult: leave the trail
+   #### `@concept:` annotations
 
-   If you consulted a concept to understand or modify a piece of
-   code, **leave a `@concept: <slug>` annotation** at the
-   most-specific load-bearing site before the next agent reads the
-   file cold. Same granularity discipline as `@blessed-invariant`:
-   annotation marks where the concept is enforced or expressed, not
-   every file that happens to touch it. No carpet-bombing.
+   `@concept: <slug>` annotations in source code are inline
+   citations marking sites where a concept is enforced. They
+   make the next agent's lookup cheap. Same granularity
+   discipline as `@blessed-invariant`: annotate where the concept
+   is enforced or expressed, not every file that happens to touch
+   it. No carpet-bombing.
 
-   - **Write-permitted agents** (editing source files in this
-     session) leave the annotation directly.
-   - **Read-only agents** (review-* skills, exploration) note
-     "consulted concept: X (annotation missing at <site>)" in
-     their findings or output so a subsequent fixer can leave the
-     annotation as part of the fix.
+   - **`execute-plan`** adds or modifies annotations when a plan
+     task explicitly directs (the spec usually surfaces this when
+     a concept is being introduced or changed).
+   - **`discover-design`** can seed initial annotations on
+     bootstrap.
+   - **`review-holistic`** notes "consulted concept: X
+     (annotation missing at <site>)" in its findings; a
+     subsequent `execute-plan` run leaves the annotation when
+     applying the fix.
 
-   This rule replaces any need for a separate "annotate the
-   codebase" task — annotations accrete through normal work.
-   Untouched code stays bare; grep-discoverability still works for
-   whatever subset has been annotated.
-
-   The `design/` log is managed by `/discover-design` (bootstrap and
-   expand the as-is + tensions catalog), `/refine-design` (specialized
-   brainstorm that produces a spec covering both concept-doc
-   mutations and code reconciliation for a chosen set of tensions),
-   and `/merge` (post-merge reconciliation). `/brainstorm` may add
-   new concept updates or tension entries when a spec surfaces them.
+   No other skill annotates on its own. Annotations accrete
+   through `execute-plan` runs.
 
    ## Layout
 
-   - `specs/` — active specs from `/brainstorm` (workflow scratch)
+   - `specs/` — active specs from `/brainstorm` and
+     `/refine-design` (workflow scratch)
    - `plans/` — active plans from `/write-plan`, plus their
-     `-notes.md` implementation notes written during execution
-     (workflow scratch)
+     `-divergences.md` reports written by `/execute-plan`'s
+     divergence auditor (workflow scratch)
    - `sketches/` — design sketches from `/sketch` (workflow scratch)
-   - `design/` — durable design log (concepts + tensions; managed by
-     `/discover-design`, `/refine-design`, `/merge`)
-   - `history/specs/` and `history/plans/` — specs and plans archived
-     here automatically when an execute-* skill finishes a plan
-     (workflow scratch)
+   - `design/` — durable design docs (concepts + tensions; mutated
+     only by `/execute-plan` via spec-directed plan tasks;
+     bootstrapped by `/discover-design`)
+   - `history/specs/` and `history/plans/` — specs and plans
+     archived here automatically when an execute-* skill finishes
+     a plan (workflow scratch)
    ````
 
 4. Report back to the calling skill (or user, if invoked directly) with
    one short line stating what was created vs. already present. Do not
    produce a long explanation.
+
+## Refreshing CLAUDE.md
+
+The embedded `.ok-planner/CLAUDE.md` template evolves alongside the
+ok-planner skills. When the skill set is updated (terminology
+changes, new conventions, etc.), an existing project's CLAUDE.md
+can fall behind and contradict the current skills. This section
+covers detecting that gap and bringing the file up to date.
+
+### Stale-framing markers
+
+The current template uses specific terminology that earlier
+templates did not. If an existing `.ok-planner/CLAUDE.md` contains
+any of these literal strings, the file predates the current
+framing:
+
+- `design log` (the durable docs are now "design docs")
+- `implementation notes` or `-notes.md` (the post-execution
+  artifact is now the divergence report, `-divergences.md`)
+- `Tensions resolved` (the spec section is now `## Design changes`,
+  unifying tension and concept mutations)
+- "any agent ... should consult" framing for the design docs
+  (consultation is now scoped to specific skills, not blanket)
+
+When a default `/init` run sees one of these markers in the
+existing CLAUDE.md, surface a one-line notification:
+
+  > Your `.ok-planner/CLAUDE.md` predates the current skill
+  > framing — run `/init --refresh` to update it (you'll review
+  > a diff before any overwrite).
+
+Do not block. Do not auto-update. The user decides when to refresh.
+
+### `/init --refresh` flow
+
+When invoked with `--refresh`:
+
+1. Read the existing `.ok-planner/CLAUDE.md` from disk. If the
+   file does not exist, treat this as a default `/init` (write
+   the template fresh, report, done).
+2. Generate the current template content as a string (the same
+   content shown above in step 3 of the Process section).
+3. Show the user a unified diff between the existing file and the
+   new template (use `diff -u` via Bash on temp files, or render
+   the diff inline if the file is small). Make sure the diff is
+   actually visible — this is the user's chance to spot
+   customizations that would be lost.
+4. Ask the user: "Overwrite, keep current, or merge manually?"
+   - **Overwrite**: write the new template to
+     `.ok-planner/CLAUDE.md`, replacing the existing content
+     entirely.
+   - **Keep current**: do nothing. The file stays as-is.
+   - **Merge manually**: print the new template content in a
+     fenced code block, tell the user to copy-paste the parts they
+     want, and exit without writing. The user handles the merge in
+     their own editor.
+5. Report the outcome in one line ("CLAUDE.md refreshed."
+   / "CLAUDE.md unchanged." / "New template printed; merge
+   manually.").
+
+Custom edits to a CLAUDE.md are not migrated automatically. The
+diff exists so the user can see what they'd lose; if there are
+custom sections worth keeping, the "merge manually" path is the
+right one. This is intentionally low-tech — refreshes should be
+rare and worth a few minutes of attention from the user.
 
 ## Reporting
 
@@ -249,6 +369,12 @@ Keep output minimal. Examples:
 - Subsequent runs: "`.ok-planner/` layout already present."
 - Partial: "Created `.ok-planner/sketches/` and `.ok-planner/history/`;
   rest already present."
+- Stale CLAUDE.md detected: append "Note: `.ok-planner/CLAUDE.md`
+  predates the current framing — run `/init --refresh` to update."
+- After `/init --refresh` overwrite: "CLAUDE.md refreshed."
+- After `/init --refresh` keep-current: "CLAUDE.md unchanged."
+- After `/init --refresh` merge-manually: "New template printed;
+  merge manually."
 
 The calling skill should continue immediately after this skill reports.
 

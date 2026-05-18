@@ -22,10 +22,10 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 
 | Skill | When to use |
 |-------|-------------|
-| `ok-planner:init` | **Internal.** Invoked by other ok-planner skills before they produce or move artifacts. Ensures `.ok-planner/{specs,plans,sketches,design,history/specs,history/plans}/` exists. Idempotent. Safe for the user to invoke directly via `/init`. |
+| `ok-planner:init` | **Internal.** Invoked by other ok-planner skills before they produce or move artifacts. Ensures `.ok-planner/{specs,plans,sketches,design,history/specs,history/plans}/` exists. Idempotent. Safe for the user to invoke directly via `/init`. Use `/init --refresh` to update an existing `.ok-planner/CLAUDE.md` to the current template (with diff + confirmation). |
 | `ok-planner:discover-design` | User types `/discover-design`. Runs autonomously end-to-end via produce → review → fix loops. Two phases: (1) reads code + prose and writes as-is scaffolding to `.ok-planner/design/_discover/`; (2) extracts load-bearing concepts to `.ok-planner/design/concepts/`, a tensions catalog to `.ok-planner/design/tensions/`, and agent-confessed uncertainty to `.ok-planner/design/review-notes.md`. Outputs are as-is, not prescriptive. Aborts rather than overwrite human-edited `concepts/` or `tensions/`. |
-| `ok-planner:refine-design` | User types `/refine-design`. Specialization of `brainstorm` for resolving design tensions. Interactive intake — user picks tensions and resolution shapes — then hands off to `brainstorm` to produce a spec covering both the concept-doc mutations and the code reconciliation, which then flows through `write-plan` → `execute-plan`. |
-| `ok-planner:merge` | User types `/merge`. Reconciles `.ok-planner/design/` against a merge or rebase: surfaces mechanical conflicts, semantic conflicts, and code-vs-design drift. Resolution is human-driven. |
+| `ok-planner:refine-design` | User types `/refine-design`. Specialization of `brainstorm` for resolving design tensions. Read-only intake — user picks tensions and resolution shapes; decisions go into a brief — then hands off to `brainstorm` to produce a spec with a `## Design changes` section capturing the concept-doc mutations and tension moves, alongside the code reconciliation. Flows through `write-plan` → `execute-plan`. |
+| `ok-planner:merge` | User types `/merge`. Surfaces design-doc findings against a recent merge or rebase (mechanical issues, drift, semantic conflicts) and runs a code review of the merge diff. Read-only against `.ok-planner/design/` — findings are written to a transient report and the user takes them through `/brainstorm` or `/refine-design` to produce a reconciliation spec. |
 | `ok-planner:sketch` | User types `/sketch`. Single-pass design sketch for a new feature, saved to `.ok-planner/sketches/`. Pre-spec, no review loop, no dialogue. Does not lead into write-plan. |
 | `ok-planner:brainstorm` | User types `/brainstorm` |
 | `ok-planner:write-plan` | You have an approved spec and need an implementation plan |
@@ -44,23 +44,26 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 All ok-planner skills read and write under `.ok-planner/` at the project
 root (created on demand by `ok-planner:init`):
 
-- `.ok-planner/specs/` — active specs from `/brainstorm`
-- `.ok-planner/plans/` — active plans from `/write-plan`, plus their
-  `-notes.md` files written during execution
+- `.ok-planner/specs/` — active specs from `/brainstorm` (including specs produced via `/refine-design`'s handoff to brainstorm)
+- `.ok-planner/plans/` — active plans from `/write-plan`, plus the
+  `-divergences.md` reports written by `/execute-plan`'s divergence
+  auditor
 - `.ok-planner/sketches/` — design sketches from `/sketch`
-- `.ok-planner/design/` — durable design log (managed by
-  `/discover-design`, `/refine-design`, `/merge`). Layout:
-  `_discover/` (as-is scaffolding), `concepts/` (load-bearing nouns
-  with definitions + boundaries + invariants), `tensions/` (catalog
-  of muddy / unspecified / conflicting bits).
+- `.ok-planner/design/` — durable design docs (bootstrapped by
+  `/discover-design`; mutated only by `/execute-plan` carrying out
+  spec-directed plan tasks). Layout: `_discover/` (as-is
+  scaffolding), `concepts/` (load-bearing nouns with definitions +
+  boundaries + invariants), `tensions/` (catalog of muddy /
+  unspecified / conflicting bits).
 - `.ok-planner/history/specs/` and `.ok-planner/history/plans/` —
   archived specs and plans moved here automatically when an execute-*
   skill finishes a plan
 
 Specs / plans / sketches / history are workflow scratch, not project
 documentation; do not propose updating them to reflect codebase
-evolution. The design log under `design/` is the exception: it is
-durable and is updated as the project's concept model sharpens.
+evolution. The design docs under `design/` are the exception: they
+are durable and have the same source-of-truth weight as code,
+updated alongside the code through `/execute-plan` runs.
 
 ## When Skills Activate
 

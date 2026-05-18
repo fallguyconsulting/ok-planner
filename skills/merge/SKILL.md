@@ -5,31 +5,33 @@ description: "ONLY activated by explicit /merge slash command. Never auto-trigge
 
 # Merge: Triage a Merge or Rebase
 
-Two-stage review of a recently-merged-in change set. Stage 1 triages the
-design log: mechanical issues get fixed, drift gets recorded as Notes
-appends, semantic disagreement becomes new tension entries. Stage 2 runs
-a code review of the merge diff via `ok-planner:review-commits`, which
-consults the (now-triaged) design log to inform its findings.
+Two-stage review of a recently-merged-in change set. Stage 1
+surfaces design-doc drift introduced by the merge — mechanical
+issues, drift, semantic conflicts — as findings the user can feed
+into a follow-up brainstorm / refine-design session that will
+produce a spec. Stage 2 runs a code review of the merge diff via
+`ok-planner:review-commits`.
 
-If the project has no design log (`.ok-planner/design/concepts/` does
-not exist), stage 1 is skipped silently and `/merge` is effectively a
-wrapper around `/review-commits` over the merge range.
+If the project has no design docs (`.ok-planner/design/concepts/`
+does not exist), stage 1 is skipped silently and `/merge` is
+effectively a wrapper around `/review-commits` over the merge
+range.
 
 ## Why this exists
 
 A merge or rebase can introduce two kinds of inconsistency:
 
-- **Design log inconsistencies** — two branches edited the same concept
-  incompatibly, or code that just landed contradicts a concept's
-  documented Boundaries / Invariants. The design log is the project's
-  oracle for "what was intended"; it must be coherent before a reviewer
-  can use it. `/merge` doesn't *resolve* design ambiguity at merge time
-  — it routes each kind of inconsistency to the appropriate shape:
-  mechanical fix, Notes append, or new tension entry.
-- **Code issues** — the usual review surface, applied to the merge diff.
-
-`/merge` runs both stages, design log first, because stage 2 consults
-the design log.
+- **Design-doc inconsistencies** — two branches edited the same
+  concept incompatibly, or code that just landed contradicts a
+  concept's documented Boundaries / Invariants. The design docs
+  are a source of truth with the same weight as code; like code,
+  they only change through plan execution. `/merge` does not
+  patch the design docs directly. It surfaces findings; the user
+  takes them through `/brainstorm` or `/refine-design` to
+  produce a reconciliation spec, which then flows through
+  write-plan and execute-plan as usual.
+- **Code issues** — the usual review surface, applied to the
+  merge diff.
 
 ## When to invoke
 
@@ -39,79 +41,93 @@ prospective tip as the comparison ref.
 
 ## Inputs
 
-- `.ok-planner/design/` — the current design log (post-merge), if present.
+- `.ok-planner/design/` — the current design docs (post-merge), if present.
 - The merge diff: `git diff <base>..HEAD`, where `<base>` defaults to
   `HEAD^1` if HEAD is a merge commit, else `main`. Override with the
   skill's optional argument: `/merge main`, `/merge HEAD~5`, etc.
 
 ## Process
 
-1. **Resolve the base ref.** If HEAD is a merge commit and no argument
-   given, use `HEAD^1`. Otherwise default to `main`. Allow the user to
-   override.
+1. **Resolve the base ref.** If HEAD is a merge commit and no
+   argument given, use `HEAD^1`. Otherwise default to `main`.
+   Allow the user to override.
 
-2. **Stage 1 — Design log triage.** If `.ok-planner/design/concepts/`
-   does not exist, skip this stage silently — the design log is opt-in.
-   Otherwise:
+2. **Stage 1 — Surface design-doc findings.** If
+   `.ok-planner/design/concepts/` does not exist, skip this stage
+   silently — the design docs are opt-in. Otherwise:
 
-   a. Dispatch the design-log triage subagent (prompt below) to surface
-      findings in three classes:
-      - **Mechanical** — slug collisions, malformed templates, broken
-        `@concept:` annotations.
-      - **Drift** — a concept's Boundaries / Invariants now contradicts
-        code that just landed; or `@concept:` annotations point at
-        sites that have moved or no longer enforce what the concept
-        claims.
-      - **Semantic conflicts** — two branches edited the same concept's
-        Definition / Purpose / Boundaries / Invariants incompatibly,
-        or added concept files for arguably the same noun under
-        different slugs.
+   a. Dispatch the design-doc triage subagent (prompt below) to
+      surface findings in three classes:
+      - **Mechanical** — slug collisions, malformed templates,
+        broken `@concept:` annotations.
+      - **Drift** — a concept's Boundaries / Invariants now
+        contradicts code that just landed; or `@concept:`
+        annotations point at sites that have moved or no longer
+        enforce what the concept claims.
+      - **Semantic conflicts** — two branches edited the same
+        concept's Definition / Purpose / Boundaries / Invariants
+        incompatibly, or added concept files for arguably the
+        same noun under different slugs.
 
-   b. Walk each finding with the user:
-      - Mechanical: confirm proposed fix; apply in a batch once
-        confirmed.
-      - Drift: confirm the proposed Notes append; apply.
-      - Semantic conflicts: confirm the drafted `tensions/<slug>.md`
-        entry text; write the tension file. Do NOT try to resolve the
-        conflict here — capturing it as a tension *is* the resolution
-        at merge time.
+   b. Save the findings to
+      `.ok-planner/_merge-findings-<date>.md` as a structured
+      markdown report (the subagent prompt below specifies the
+      format). The file lives at the `.ok-planner/` root, not
+      under `design/`, because `/merge` is read-only against the
+      design docs. Do NOT modify any file under
+      `.ok-planner/design/` to apply the findings — design docs
+      change only through plan execution.
 
-   c. Collect the slugs of any new tensions written; carry them to
-      the end-of-run summary.
+   c. Walk the findings with the user briefly:
+      - Confirm each finding makes sense (drop spurious ones).
+      - For each kept finding, suggest the natural next step:
+        * **Mechanical** → small targeted spec via `/brainstorm`,
+          with a `## Design changes` section listing the fixes.
+        * **Drift** → small spec via `/brainstorm` with
+          `## Design changes` capturing the Notes append (and any
+          concept-edit that needs to ride with code changes that
+          would land separately).
+        * **Semantic conflicts** → suggest `/refine-design` after
+          the user has at least one of the conflicting positions
+          captured as a tension; or a follow-up `/brainstorm` if
+          the user has already decided on a resolution.
 
-   Single pass — no fix loop. The user is the arbiter; once each
-   finding has a confirmed resolution, stage 1 is done.
+      The user decides when to act. `/merge` does not invoke
+      `/brainstorm` or `/refine-design` automatically.
 
-3. **Stage 2 — Code review.** Invoke `ok-planner:review-commits` with
-   the range `<base>..HEAD` as its skill argument so its interactive
-   range-picker is bypassed. `/review-commits` already consults the
-   design log when present (now triaged, per stage 1) and pipes its
-   findings through `review-cleanup`. Let it run to completion.
+   Single pass. No fix loop. No writes to the design docs.
 
-4. **End-of-run summary.** Report what stage 1 did (counts by class)
-   and what stage 2 did (findings + cleanup status). If stage 1 wrote
-   any new tension entries, list their slugs and suggest
-   `/refine-design` when the user is ready to resolve them. Do not
-   invoke `/refine-design` automatically — it's a substantial
-   interactive session and may not be the right moment.
+3. **Stage 2 — Code review.** Invoke `ok-planner:review-commits`
+   with the range `<base>..HEAD` as its skill argument so its
+   interactive range-picker is bypassed. Let it run to completion
+   via review-cleanup.
 
-## Design-Log Triage Subagent Prompt
+4. **End-of-run summary.** Report stage 1's findings counts and
+   the path to the `.ok-planner/_merge-findings-<date>.md` report;
+   report stage 2's findings + cleanup status. Remind the user that
+   design-doc findings need a follow-up spec (via `/brainstorm`
+   or `/refine-design`) to actually fix anything — `/merge` only
+   surfaced them.
+
+## Design-doc Triage Subagent Prompt
 
 ```
 Agent (general-purpose):
-  ## Triage Design Log Against Merge
+  ## Triage Design Docs Against Merge
 
   ### Your job
 
-  A merge or rebase has just landed. The design log at
-  `.ok-planner/design/` may now be inconsistent with itself, with the
-  codebase, or both. Surface the inconsistencies in three classes of
-  finding. Do NOT attempt to resolve them — your job is to draft
-  proposed actions; the orchestrator walks them with the user.
+  A merge or rebase has just landed. The design docs at
+  `.ok-planner/design/` may now be inconsistent with themselves,
+  with the codebase, or both. Surface the inconsistencies in three
+  classes of finding for the orchestrator to walk with the user.
+  **Do NOT modify any file under `.ok-planner/design/`** — design
+  docs change only through plan execution. Your job is to draft
+  findings, not apply them.
 
   ### Inputs
 
-  - Current design log: read every file under
+  - Current design docs: read every file under
     `.ok-planner/design/concepts/` and `.ok-planner/design/tensions/`.
     Read `.ok-planner/design/concepts.md` (the TOC) for orientation.
   - Merge diff: `git diff <BASE>..HEAD` where BASE was supplied as
@@ -120,7 +136,7 @@ Agent (general-purpose):
     structure.
 
   Do NOT read existing docs (READMEs, narrative under `docs/`, etc.).
-  The design log is the authoritative record of intent for this
+  The design docs are the authoritative record of intent for this
   skill's purposes.
 
   ### Three classes of finding
@@ -157,10 +173,11 @@ Agent (general-purpose):
   - Proposed Notes append text (one or two lines, dated, citing the
     merge)
 
-  Per the design log's format-durability rules, do NOT propose
-  rewrites of Definition / Purpose / Boundaries / Invariants. Notes
-  appends are the only safe mutation at merge time; rewrites are
-  `/refine-design`'s job.
+  Per the design docs' format-durability rules, do NOT propose
+  rewrites of Definition / Purpose / Boundaries / Invariants in
+  the merge findings. Notes appends are the natural shape for
+  drift findings; bigger rewrites need a `/refine-design` session
+  to produce a proper spec.
 
   #### 3. Semantic conflicts
 
@@ -217,12 +234,13 @@ Agent (general-purpose):
 
 ## What this skill does NOT do
 
+- Does not modify any file under `.ok-planner/design/`. Findings
+  are surfaced in a report; resolution is human-driven and rides
+  through the spec pipeline.
 - Does not auto-resolve semantic conflicts. Semantic disagreement
-  becomes a tension entry; resolving the tension is `/refine-design`'s
-  job.
-- Does not rewrite Definition / Purpose / Boundaries / Invariants in
-  concept files. Only Notes appends are allowed at merge time.
-- Does not invoke `/refine-design` automatically.
+  goes into a follow-up `/refine-design` session as new tension
+  entries (which get written by execute-plan, not by merge).
+- Does not invoke `/brainstorm` or `/refine-design` automatically.
 - Does not modify the merge commit. All changes are new working-tree
   edits (or new commits on top of HEAD, if the user chooses to commit
   them).

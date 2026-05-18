@@ -46,46 +46,14 @@ The spec is the unit of work. The plan's job is to translate it into executable
 tasks — not to revise its scope. Whatever the spec covers, the plan covers, end
 to end, in a single run.
 
-If the spec has a `## Tensions resolved` section (the marker that this work
-came in via `refine-design`), treat the concept-file mutations and the
-tension-file moves it specifies as first-class plan tasks alongside the code
-work. Each `concepts/<slug>.md` mutation gets explicit edit instructions; each
-resolved tension gets a task to move `tensions/<slug>.md` to
-`tensions/_resolved/<slug>.md` with `status: resolved` and a `resolution`
-block summarizing the outcome. Design-doc edits are not optional follow-up —
-they ship in the same plan as the code that conforms to them.
-
-## Design log awareness
-
-If `.ok-planner/design/concepts/` exists, it is the project's
-canonical concept catalog. To find what applies to the files the
-plan will touch:
-
-1. Read `.ok-planner/design/concepts.md` — the auto-generated TOC.
-2. Grep for `@concept:` annotations in the files the plan will
-   touch (`rg '@concept:' <path>`).
-3. Read `concepts/<slug>.md` in full for each concept surfaced by
-   step 1 or 2 that's load-bearing for the plan.
-
-Plan tasks must respect each consulted concept's stated boundaries
-and invariants:
-
-- If a task would violate an invariant or drift from a stated
-  boundary without the spec's `## Tensions resolved` section
-  authorizing it, surface that to the user before writing the plan —
-  it means either the spec missed a design impact or the concept
-  doc needs updating. Don't silently plan an invariant-violating
-  change.
-- When tasks touch files claimed by a concept, cite the concept
-  briefly in the task notes ("respects boundary X from
-  `concepts/<slug>.md`") so the implementer reads it. If a task is
-  the first one to touch a load-bearing site for a concept that
-  doesn't yet have an `@concept:` annotation there, include adding
-  the annotation as part of the task.
-
-If `.ok-planner/design/concepts/` doesn't exist, this skill operates
-as it does today. Do not create it as a side effect.
-
+If the spec has a `## Design changes` section, treat every bullet there as a
+first-class plan task alongside the code work. Concept file mutations get
+explicit edit instructions (which file, which sections, what new text, what
+Notes entry to append). Tension file moves get explicit `mv` / `git mv` tasks
+with the destination path, status update, and resolution block. New concept
+or tension files get full-content task instructions. These design-doc edits
+are not optional follow-up — they ship in the same plan as the code that
+conforms to them, because the design docs and the code change as one unit.
 
 - No phases, stages, milestones, or "phase 1 of N." A plan is executed start to
   finish in one run.
@@ -96,9 +64,13 @@ as it does today. Do not create it as a side effect.
 - No commit, push, branch, or PR steps. The user owns git. Plans produce
   working-tree edits and verification commands; nothing else.
 
-If the spec is genuinely unworkable (contradictory, missing required context,
-references things that do not exist), surface that to the user before writing
-the plan. Do not silently narrow the scope.
+The spec is the source of truth for the plan. Brainstorm reviewed
+the spec against the design docs already; the plan does not re-check
+it. Translate the spec faithfully into executable tasks and trust
+the spec. If the spec is genuinely unworkable (contradictory,
+missing required context, references things that do not exist),
+surface that to the user before writing the plan. Do not silently
+narrow the scope.
 
 ## Autonomous Execution Required
 
@@ -161,19 +133,58 @@ After writing, dispatch a reviewer:
 ```
 Agent (general-purpose):
   Review the plan at [path] against the spec at [path].
-  Check: completeness, spec alignment, task decomposition, buildability, and
-  autonomous executability — every step must be runnable by an agent without
-  human intervention. Flag any step that requires manual verification,
-  user approval, external environments, or credentials the plan does not
-  provide. Manual checks belong in a final "Manual checks after completion"
-  section, never inside a task.
-  Flag any phase/stage/milestone framing or any plan that implements only
-  part of the spec — the plan must cover the spec in full and execute
-  end-to-end in a single run. Flag any commit, push, branch, PR, deployment,
-  release, or rollout steps — plans produce working-tree edits and
-  verification commands; delivery process is the user's concern.
-  Only flag issues that would cause implementation failure or force the
-  executing agent to stall for human input.
+
+  ## Ground every claim in source code
+
+  Before checking the plan against the spec, verify the plan
+  against the codebase. A plan that references files, functions,
+  or APIs that do not exist (or have a different shape than the
+  plan assumes) sends the implementer chasing ghosts. Catch it
+  here.
+
+  - Read every file path the plan names. If a path does not exist
+    and the plan does not mark it as new (a "create this file"
+    task), flag it.
+  - For every function, class, module, type, table, endpoint, or
+    other named entity the plan references as existing, find it
+    (`rg`, `grep`, or direct read). If it does not exist, or its
+    actual shape differs materially from the plan's assumption,
+    flag it with file:line and what is actually there.
+  - For every "modify X" / "the existing Y" instruction, verify
+    the target exists and is shaped as the plan assumes.
+
+  If you find one such issue, keep looking — they cluster.
+
+  ## Plan quality checks
+
+  After grounding, check:
+  - Completeness and spec alignment. If the spec has a
+    `## Design changes` section, verify the plan contains explicit
+    tasks for each bullet (concept file mutations, tension file
+    moves to `_resolved/` or `_rejected/`, new concept or tension
+    files). Design-doc edits ride alongside code edits in the
+    same plan; missing tasks here are blocking.
+  - Task decomposition (one discrete action plus verification per
+    step)
+  - Buildability (the implementer can act on each task from the
+    information given)
+  - Autonomous executability — every step must be runnable by an
+    agent without human intervention. Flag any step that requires
+    manual verification, user approval, external environments, or
+    credentials the plan does not provide. Manual checks belong
+    in a final "Manual checks after completion" section, never
+    inside a task.
+
+  Flag any phase/stage/milestone framing or any plan that
+  implements only part of the spec — the plan must cover the spec
+  in full and execute end-to-end in a single run. Flag any commit,
+  push, branch, PR, deployment, release, or rollout steps — plans
+  produce working-tree edits and verification commands; delivery
+  process is the user's concern.
+
+  Only flag issues that would cause implementation failure or
+  force the executing agent to stall for human input.
+
   Report: Approved | Issues Found (with specifics)
 ```
 

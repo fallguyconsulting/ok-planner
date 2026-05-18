@@ -42,39 +42,47 @@ Agent (general-purpose):
   ### Pre-existing issues
   If you find bugs, stale references, or inconsistencies in any file you read — even if they predate the current work — report them. "It was already broken" is not a reason to skip it. If an issue in one file points to problems in files outside the spec's scope, follow the trail and report those too.
 
-  ### Design log (if present)
-  If `.ok-planner/design/concepts/` exists, consult it before
-  forming findings:
+  ### Source of truth
+  The spec/plan is the source of truth for this review. Form your
+  judgments against the spec/plan, not against the design docs
+  under `.ok-planner/design/` — the design docs as oracle are the
+  concern of `review-holistic` (read-only oracle consumer) and
+  the read-only consultants (`brainstorm`, `refine-design`,
+  `merge`).
 
-  1. Read `.ok-planner/design/concepts.md` (the TOC).
-  2. For files in scope, `rg '@concept:' <path>` for inline
-     citations.
-  3. Read `concepts/<slug>.md` for concepts surfaced by (1) or (2).
+  If the spec has a `## Design changes` section, open the
+  affected files under `.ok-planner/design/` to verify each
+  listed mutation landed correctly (concept edits, tension file
+  moves to `_resolved/`, new concept or tension files). That's
+  not consulting the design docs as oracle — it's verifying
+  spec-directed work. If your review raises a question the
+  spec/plan doesn't address, raise it as an issue against the
+  spec/plan, not against the design docs.
 
-  Don't flag code that a concept documents as the intended shape.
-  Cite the concept file when a finding genuinely contradicts one.
-  Findings matching an open `tensions/<slug>.md` are duplicates —
-  note the tension slug.
-
-  If the spec has a `## Tensions resolved` section, verify the
-  implementation actually applied each listed concept-file mutation
-  and tension-file move (first-class plan tasks).
-
-  **Annotate-on-consult (read-only variant):** When you consulted a
-  concept and the load-bearing site has no `@concept:` annotation,
-  note "consulted concept: <slug> (annotation missing at
-  <file:line>)" in the finding so the fixer adds it.
-
-  If `.ok-planner/design/concepts/` doesn't exist, ignore this
-  section.
+  ### Divergence report (if present)
+  If the plan was executed by `ok-planner:execute-plan`, a
+  divergence report may exist at
+  `.ok-planner/plans/<plan>-divergences.md` (or its archived
+  equivalent under `history/plans/`). If present, read it for
+  context on creative choices the implementer made. A divergence
+  by itself is not an issue — form your findings from the code.
+  A divergence that produces working, safe code is fine; one that
+  introduces a bug, regression, or invariant violation is an
+  issue.
 
   ### Output Format
 
   For each spec requirement, report:
-  - Implemented correctly
-  - Missing (not implemented)
-  - Incorrect (implemented but wrong)
-  - Deviated (implemented differently than specified)
+  - **Implemented correctly** — the requirement is met, whether
+    the code follows the plan literally or arrived at the same
+    business outcome by a different shape.
+  - **Missing** — the requirement was not implemented.
+  - **Broken** — the requirement was attempted but the
+    implementation has a bug, regression, or invariant violation.
+
+  Deviation from the plan's literal wording is NOT a finding by
+  itself — if the spec's intent is met, it's correct. Only flag
+  deviations that produce broken code.
 
   Then list any additional issues found with file:line references.
   Do not categorize by severity. Every issue needs fixing.
