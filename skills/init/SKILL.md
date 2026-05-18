@@ -1,6 +1,6 @@
 ---
 name: init
-description: "Ensure the project's .ok-planner/ artifact directories exist. Invoked by other ok-planner skills before they produce documents. Not user-facing."
+description: "Ensure .ok-planner/ artifact directories exist. Invoked by other ok-planner skills before producing artifacts; also user-invokable as `/init` (idempotent layout check) or `/init --refresh` (update the embedded .ok-planner/CLAUDE.md to the current template, with diff + user confirmation)."
 ---
 
 # Initialize ok-planner artifact layout
