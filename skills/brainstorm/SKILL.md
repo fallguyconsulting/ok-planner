@@ -105,6 +105,7 @@ asks.
 ## Working in Existing Codebases
 
 - Explore current structure before proposing changes. Follow existing patterns.
+- When the spec introduces shape-bearing entities (new persistence tables, new HTTP routes, new wire formats, new event kinds, new error envelopes), check the conventions in place for similar entities and match them in the spec — column naming, route plurality, payload shapes, prefix discipline. Downstream readers assume convention; surprise mismatches end up baked into the plan and the code.
 - Where existing code has problems that affect the work, include targeted improvements
 - Don't propose unrelated refactoring
 
@@ -201,8 +202,22 @@ Agent (general-purpose):
     "the existing Z" assertion, verify against the actual code.
     Flag any that do not match, citing the file and what is
     actually there.
+  - For every NEW shape-bearing entity the spec introduces (new
+    persistence table, new HTTP route surface, new wire format,
+    new event kind, new error envelope), find its closest cousin
+    in the codebase and check that the spec's proposed shape
+    matches the prevailing convention — column naming, route
+    plurality, payload structure, prefix discipline. The planner
+    downstream will codify the proposed shape as written; a spec
+    that names a new table inconsistently with its siblings, or
+    proposes a route shape that contradicts the rest of the API,
+    sends the cluster downstream into the plan and the code. If
+    the deviation is intentional and the spec justifies it, fine;
+    if the spec is silent, flag the mismatch.
 
   If you find one such issue, keep looking — they cluster.
+  Exhaustively check every file path and every named entity; do
+  not sample.
 
   ## Check against the design docs (if present)
 
@@ -256,7 +271,7 @@ Agent (general-purpose):
   Report: Approved | Issues Found (with specifics)
 ```
 
-Fix issues, re-review until clean. Then ask user to review the written spec.
+Fix issues, re-review until clean. Each re-review runs the full grounding pass — do not assume the previous round was exhaustive. Cluster bias means missed grounding issues hide behind the ones the previous reviewer found. Then ask user to review the written spec.
 
 ## Transition
 

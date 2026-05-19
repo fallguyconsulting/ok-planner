@@ -40,6 +40,20 @@ Treat the plan as a **self-contained executable artifact**. Anything the impleme
 
 A good test: if you handed this plan to a competent engineer who joined the project this morning, could they execute it without asking questions? If not, the plan is not done.
 
+## Ground the plan in the live codebase
+
+Before defining tasks, read the live code the spec implies will be touched. The spec describes *what* to build; the plan describes *how it lands in this codebase*. The second question only has an answer if you know what the codebase actually looks like right now.
+
+For every area the spec touches:
+
+- Read the files the spec names or implies will be modified. Skim sibling files too — the ones that solve nearby problems are the ones whose shape the new code should match.
+- For every new file, type, interface, handler, route, or table the spec proposes, find its closest cousin. New CLI verb? Look at where existing CLI verbs live and how they wire to the dispatcher. New persistence table? Look at neighboring tables' interface conventions (transaction handling, accessor patterns, error shapes). New scheduler sweep? Look at where existing sweeps register. New audit event? Look at how other events are emitted.
+- Note the prevailing pattern. If the spec implies a location or shape that contradicts the prevailing pattern, the plan should match the pattern unless the spec explicitly justifies the deviation. The implementer will obey the plan literally; if the plan says "put it in directory X" and that contradicts the codebase's convention, the resulting code will be structurally out-of-place.
+
+Specs are usually written from a clean-room reading of the design and don't track every codebase-shape detail that's accumulated since the last spec. The plan is the layer where those details get reconciled. A plan written without grounding sends the implementer to build the wrong shape in the wrong place, faithfully.
+
+If grounding reveals that the spec assumed a shape or location that no longer exists, surface it to the user before writing tasks. Either the spec needs revision or the plan needs to bridge the gap explicitly — but the planner does not silently reshape spec intent.
+
 ## The plan captures the spec, in full
 
 The spec is the unit of work. The plan's job is to translate it into executable
@@ -152,8 +166,26 @@ Agent (general-purpose):
     flag it with file:line and what is actually there.
   - For every "modify X" / "the existing Y" instruction, verify
     the target exists and is shaped as the plan assumes.
+  - For every NEW file, type, interface, handler, route, or table
+    the plan introduces, find its closest cousin in the codebase
+    (sibling files in the same directory, neighboring tables,
+    prevailing patterns for similar work) and check that the
+    plan's proposed shape and location match. A plan that puts
+    new CLI verbs under `cmd/foo/` when every other verb lives in
+    `internal/cli/` — or that defines a new persistence table
+    with a different transaction-handling convention than its
+    neighbors — sends the implementer to build something
+    structurally out-of-place. The grounding rule covers
+    new-but-conventionally-shaped code, not just references to
+    existing entities. If the plan's deviation is intentional
+    and the spec justifies it, the plan should say so; if the
+    plan is silent, flag it as a grounding miss.
 
   If you find one such issue, keep looking — they cluster.
+  Exhaustively check every file path and every named entity; do
+  not sample. The cost of a missed grounding issue is multiplied
+  by the cost of the implementer chasing the ghost or building
+  the wrong shape.
 
   ## Plan quality checks
 
@@ -188,7 +220,7 @@ Agent (general-purpose):
   Report: Approved | Issues Found (with specifics)
 ```
 
-Fix issues, re-review until clean.
+Fix issues, re-review until clean. Each re-review runs the full grounding pass — do not assume the previous round was exhaustive. Cluster bias means missed grounding issues hide behind the ones the previous reviewer found; a second-round reviewer that only verifies the cycle-1 fixes will leave the cluster's tail un-caught.
 
 ## Execution Handoff
 
