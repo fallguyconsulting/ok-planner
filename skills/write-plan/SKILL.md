@@ -69,8 +69,11 @@ or tension files get full-content task instructions. These design-doc edits
 are not optional follow-up — they ship in the same plan as the code that
 conforms to them, because the design docs and the code change as one unit.
 
-- No phases, stages, milestones, or "phase 1 of N." A plan is executed start to
-  finish in one run.
+- A plan executes start to finish in one `execute-plan` run. No user-facing
+  phases, stages, milestones, deliverables, or "phase 1 of N" framing. Passes
+  (see below) are internal chunks for the executor, not phases visible to the
+  user — there are no checkpoints, approvals, or partial deliveries between
+  them.
 - No partial-spec plans. If the spec describes ten unrelated changes, the plan
   contains tasks for all ten. Cohesion, independence, and "is this really one
   feature" are not the planner's concerns — those decisions were made when the
@@ -107,9 +110,33 @@ If a feature genuinely requires manual verification that cannot be automated (e.
 
 Map out files before defining tasks. Design units with clear boundaries. Each file should have one clear responsibility.
 
-## Task Granularity
+## Passes — chunking for execution
 
-Each step is one discrete, verifiable action: one thing the implementer does, followed by something concrete to check. Small steps exist to create checkpoints — they isolate failures, keep each step's output inspectable, and make recovery cheap when something goes wrong. They are not a concession to limited agent capacity.
+`execute-plan` dispatches one pass at a time, not the whole plan at once. A pass is a coherent chunk of work that one subagent completes in a single dispatch. The plan declares its passes up front; the executor processes them in order.
+
+**Why passes:** A flat plan of 50 tasks either exhausts one subagent's context or forces the executor to chunk on the fly (which it does poorly). A flat plan of 4 tasks doesn't need chunking — it's one pass. Passes are *not phases*: there are no user checkpoints between them, no partial deliveries, no "phase 1 of N" framing visible to the user. They all run inside one `execute-plan` invocation. The user-facing unit is still "the plan."
+
+**Pass count guidance:**
+
+- Most plans are 1–3 passes.
+- Very large plans may reach ~10–12 passes.
+- A plan that wants >12 passes is usually trying to cover more than one cohesive change — surface that to the user and ask whether the spec should split.
+- A plan with 1 pass and 30+ tasks is asking one subagent to do too much — split it.
+
+**Pass sizing:** A pass should fit comfortably in one subagent's working context — typically a handful of tasks against a focused area of the codebase. If a pass enumerates 10+ tasks or scatters across unrelated areas of the tree, consider splitting it. If two adjacent passes touch the same handful of files in continuous order with no meaningful boundary between them, consider merging them.
+
+**End-state declarations:** Each pass declares the state the codebase is in at its end:
+
+- `working` — the pass's verification command must succeed before the next pass dispatches. This is the default.
+- `broken-intentional` — the pass deliberately leaves the codebase non-working (e.g., it deletes the old code path before a later pass adds the new one). The declaration MUST name the pass that restores working state, e.g., `broken-intentional (restored by Pass 4)`.
+
+Most passes are `working`. `broken-intentional` is for migrations and replacements where the half-state is unavoidable: "delete old auth code → add new auth code → flip callers → restore tests" is naturally 3–4 passes with the middle two non-working. Do not use `broken-intentional` to avoid writing a verification command; use it only when the codebase genuinely cannot pass its checks at the pass boundary.
+
+**Verification:** A `working` pass has a verification command the executor runs between passes — a test, typecheck, lint, or targeted script. The command's exit code is the gate. A `broken-intentional` pass has `Verification: none` because the codebase isn't expected to verify cleanly.
+
+## Task granularity (within a pass)
+
+Each step inside a task is one discrete, verifiable action: one thing the implementer does, followed by something concrete to check. Small steps exist to create checkpoints — they isolate failures, keep each step's output inspectable, and make recovery cheap when something goes wrong. They are not a concession to limited agent capacity.
 
 - "Write the failing test" -- step
 - "Run it to verify it fails" -- step
@@ -136,9 +163,43 @@ the spec alongside the plan when the work completes. If a plan was
 authored without going through `brainstorm` (i.e., no spec exists), write
 `**Spec:** none` so the field is still present and explicit.
 
-## Task Structure
+## Pass and Task Structure
 
-Each task has: files list, numbered steps with code, verification commands. Every verification is a command the implementer can run and interpret from its output. Do not include commit steps, "ask the user" steps, or manual-check steps — the user commits when they are ready and manual checks go in the final section (see Autonomous Execution Required above).
+Tasks live under passes. Each pass has a header with goal/end-state/verification; each task under it has its own files list, numbered steps, and verification command. Tasks are numbered globally across the plan, not reset per pass — that way the divergence audit, plan reviewer, and user can reference "Task 7" unambiguously.
+
+```markdown
+## Pass 1: Delete the legacy auth path
+
+**Goal:** Remove the old token-based auth code so the new session-based code can land cleanly in Pass 2.
+**Scope:** Tasks 1–3
+**End state:** broken-intentional (restored by Pass 3)
+**Verification:** none
+
+### Task 1: Remove `internal/auth/token.go`
+
+**Files:** `internal/auth/token.go`, `internal/auth/token_test.go`
+
+**Steps:**
+1. Delete both files.
+2. ...
+
+**Verification:** `git status` confirms the files are gone.
+
+### Task 2: ...
+
+---
+
+## Pass 2: Add session-based auth
+
+**Goal:** Introduce the new session module with full tests.
+**Scope:** Tasks 4–6
+**End state:** working
+**Verification:** `go test ./internal/auth/...`
+
+### Task 4: ...
+```
+
+Every verification is a command the implementer can run and interpret from its output. Do not include commit steps, "ask the user" steps, or manual-check steps — the user commits when they are ready and manual checks go in the final section (see Autonomous Execution Required above).
 
 ## Plan Review
 
@@ -207,12 +268,45 @@ Agent (general-purpose):
     in a final "Manual checks after completion" section, never
     inside a task.
 
-  Flag any phase/stage/milestone framing or any plan that
-  implements only part of the spec — the plan must cover the spec
-  in full and execute end-to-end in a single run. Flag any commit,
-  push, branch, PR, deployment, release, or rollout steps — plans
-  produce working-tree edits and verification commands; delivery
-  process is the user's concern.
+  ## Pass decomposition checks
+
+  Passes are how `execute-plan` chunks the plan for dispatch.
+  Bad decomposition either exhausts a subagent's context or
+  fragments the work into too many serial dispatches. Check:
+
+  - Every task lives under a numbered pass (no orphan tasks
+    outside any pass).
+  - Pass count is appropriate to the plan: most plans are 1–3
+    passes; very large plans up to ~12. Flag >12 passes as a sign
+    the plan should split. Flag a single pass with 30+ tasks
+    (one subagent shouldn't be asked to do that much).
+  - Each pass header declares **Goal**, **Scope** (task
+    range), **End state**, and **Verification**.
+  - End state is `working` or `broken-intentional`. Every
+    `broken-intentional` pass MUST name the pass that restores
+    working state (e.g., "restored by Pass 4"). A
+    `broken-intentional` pass that doesn't name a restorer is a
+    blocking issue — the executor has no signal that the half-state
+    is intentional.
+  - The final pass MUST end with `working` (the plan can't leave
+    the codebase broken). Flag any plan whose last pass is
+    `broken-intentional`.
+  - `working` passes have a non-empty Verification command the
+    executor can run between passes. `broken-intentional` passes
+    have `Verification: none`. Flag mismatches.
+  - Adjacent passes that touch the same handful of files in
+    continuous order with no meaningful boundary — consider
+    merging. Passes that enumerate 10+ tasks or scatter across
+    unrelated areas — consider splitting.
+
+  Flag any phase/stage/milestone framing aimed at the user (passes
+  are internal chunks; "phase 1 of N" framing implies user
+  checkpoints and is not allowed). Flag any plan that implements
+  only part of the spec — the plan must cover the spec in full
+  and execute end-to-end in a single `execute-plan` run. Flag any
+  commit, push, branch, PR, deployment, release, or rollout steps —
+  plans produce working-tree edits and verification commands;
+  delivery process is the user's concern.
 
   Only flag issues that would cause implementation failure or
   force the executing agent to stall for human input.

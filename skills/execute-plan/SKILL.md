@@ -3,41 +3,59 @@ name: execute-plan
 description: "ONLY activated by explicit /execute-plan slash command or ok-planner pipeline. Never auto-triggered."
 ---
 
-# Executing a Plan to Completion (single subagent)
+# Executing a Plan to Completion (pass-by-pass)
 
-Dispatch one subagent with the full plan and trust it to finish. The plan is a record of the user's intent; the implementer's job is to deliver that intent. When the implementer reports DONE, run a divergence audit to capture creative choices, then hand off to `ok-planner:review-work`. The implementer is given two — and only two — permitted reasons to stop short. Reports that don't qualify as DONE or as a genuinely-valid BLOCKED are re-dispatched with a sharper directive; escalation to the user is reserved for real BLOCKED conditions and for the case where re-dispatch has run its cap.
+Dispatch one subagent per pass, chaining the same implementer across passes via `SendMessage` where the chain budget allows, and falling back to fresh `Agent` dispatches past the chain cap. Between passes, gate on the pass's declared verification command (skip the gate for `broken-intentional` passes). When all passes are DONE, run a divergence audit to capture creative choices, then hand off to `ok-planner:review-work`.
 
-The orchestrator dispatches one subagent for the whole plan. Goal: full completion in as few dispatches as possible, ideally one. Review happens once at the end. Reworks happen when the user asks for them — not because the agent decided to defer.
+The plan is a record of the user's intent; the implementer's job is to deliver the spec's business value pass by pass. The implementer is given two — and only two — permitted reasons to stop short within a pass. Reports that don't qualify as DONE on the dispatched pass or as a genuinely-valid BLOCKED are re-dispatched with a sharper directive; escalation to the user is reserved for real BLOCKED conditions and for the case where re-dispatch has run its cap on the current pass.
+
+The orchestrator's job is to drive the whole plan to completion in as few agent invocations as the passes allow. Most large plans should converge in 5–12 dispatches (one per pass, with chained `SendMessage` resumes folded into a smaller number of "fresh" Agent invocations). Review happens once at the end. Reworks happen when the user asks for them — not because the agent decided to defer mid-plan.
 
 ## Orchestrator's role
 
-You are the taskmaster. You do not implement. You dispatch, verify the report, and hand off. You insist on full completion before review. You do not take BLOCKED at face value — agents under pressure misapply it, and your job is to push back when the stated reason doesn't actually match one of the two permitted bullets. Off-pattern reports get re-dispatched, not escalated.
+You are the taskmaster. You do not implement. You dispatch each pass, verify the report, gate on the pass's verification command, and advance to the next pass. You insist on completing every pass before review. You do not take BLOCKED at face value — agents under pressure misapply it, and your job is to push back when the stated reason doesn't actually match one of the two permitted bullets. Off-pattern reports get re-dispatched on the current pass, not escalated.
+
+You also own the chain. You decide for each pass whether to dispatch a fresh `Agent` or `SendMessage` to the same implementer that ran the previous pass, based on the chain-depth cap (see "Chaining via SendMessage" below). You track the implementer's agent ID across passes.
 
 ## Process
 
-1. **Read the plan and extract tasks.** Capture the full text of each task verbatim — you'll be passing them to the subagent. Number them as the plan numbers them. While reading, note the plan's `**Spec:**` header — you'll need it for the divergence audit and for archival.
+1. **Read the plan and extract passes.** For each pass, capture: its number, name, **Goal**, **Scope** (task range), **End state** (`working` / `broken-intentional` with restorer named), **Verification** command, and the full verbatim text of every task it contains. You'll feed one pass at a time to the implementer. Note the plan's `**Spec:**` header — you'll need it for the per-pass dispatch, the divergence audit, and archival.
+
+   If the plan has no passes (older flat-task plans), treat the entire task list as a single pass with `End state: working` and the plan's overall verification (if any). Flag this to the user as a one-line note before dispatching: the plan predates the pass model and the executor is treating it as a single pass.
 
 2. **Initialize the layout.** Invoke `ok-planner:init` to ensure `.ok-planner/plans/` and `.ok-planner/history/` exist.
 
-3. **Dispatch the implementer** using the subagent prompt template below.
+3. **Dispatch passes in order.** Initialize `chain_depth = 0` and `implementer_id = none`. For each pass in plan order:
 
-4. **Parse the report and verify it.** Do not take the implementer's label at face value. The implementer is expected to ship the work; off-pattern reports usually mean the implementer wavered and should be nudged back, not that the user needs to intervene.
+   a. **Dispatch the pass.** If `implementer_id` is set and `chain_depth < MAX_CHAIN_DEPTH` (see "Chaining via SendMessage"), `SendMessage` to that implementer using the continuation template. Otherwise, dispatch a fresh `Agent` (general-purpose) using the full pass-dispatch template; record its agent ID as `implementer_id` and set `chain_depth = 0`. Either way, increment `chain_depth` after the dispatch returns.
 
-   - **STATUS: DONE** → confirm every task in the dispatch is marked done in the per-task list. If yes, proceed to step 5 (divergence audit). If DONE was claimed but some tasks are not-done, that's off-pattern — re-dispatch.
-   - **STATUS: BLOCKED** → verify the stated reason genuinely matches one of the two bullets. Bullet 1 is credentials/access the user must provide; bullet 2 is an unauthorized destructive or irreversible action. Read the specific situation the implementer described and judge whether it actually fits. **Be skeptical.** Agents under pressure label coupling, ambiguity, "I'd rather not," "this needs discussion," and "the plan was wrong about X" as BLOCKED. None of those qualify. If the BLOCKED is genuine → escalate (the only first-line escalation path). If misapplied → re-dispatch with a directive that the reported reason is not a permitted BLOCKED and the implementer should figure it out from spec intent.
-   - **Anything else** (STATUS: PARTIAL, STATUS: INCOMPLETE, no status, malformed report, zero meaningful changes to the working tree) → re-dispatch. Not an escalation.
+   b. **Parse the report and verify it.** Do not take the implementer's label at face value. The implementer is expected to ship the pass; off-pattern reports usually mean the implementer wavered and should be nudged back, not that the user needs to intervene.
 
-   See "Re-dispatch" for the prompt shape and "Escalation" for the rare escalation cases.
+      - **STATUS: DONE** → confirm every task listed in the dispatched pass is marked done in the per-task list. If yes, proceed to (c). If DONE was claimed but some tasks in this pass are not-done, that's off-pattern — re-dispatch the pass.
+      - **STATUS: BLOCKED** → verify the stated reason genuinely matches one of the two bullets. Bullet 1 is credentials/access the user must provide; bullet 2 is an unauthorized destructive or irreversible action. Read the specific situation the implementer described and judge whether it actually fits. **Be skeptical.** Agents under pressure label coupling, ambiguity, "I'd rather not," "this needs discussion," and "the plan was wrong about X" as BLOCKED. None of those qualify. If the BLOCKED is genuine → escalate (the only first-line escalation path). If misapplied → re-dispatch the pass with a directive that the reported reason is not a permitted BLOCKED and the implementer should figure it out from spec intent.
+      - **Anything else** (STATUS: PARTIAL, STATUS: INCOMPLETE, no status, malformed report, zero meaningful changes to the working tree) → re-dispatch the pass. Not an escalation.
 
-5. **Divergence audit.** Dispatch the auditor (template below). It reads the plan, the spec, and the working-tree diff and produces `.ok-planner/plans/<plan-basename>-divergences.md`. Surface the report's path and a one-line summary to the user, then continue.
+   c. **Run the pass verification gate.** If the pass's **End state** is `working`, run its **Verification** command. If it exits 0, advance to the next pass. If it exits non-zero, re-dispatch the pass with the failed verification output included as a directive (see "Re-dispatch"). If the pass's **End state** is `broken-intentional`, skip the gate and advance — the broken state is the declared outcome and the next pass (or a later one) restores working state.
 
-6. **Final review.** Invoke `ok-planner:review-work` for the full implementation. Let `review-cleanup` drive the fix cycle to clean.
+   d. **Sanity check before advancing.** If the just-completed pass was `broken-intentional` and the pass it named as the restorer doesn't exist in the plan (e.g., "restored by Pass 7" but the plan only has 6 passes), stop and escalate — the plan is internally inconsistent. This is a planner failure, not an implementer failure; the user needs to know.
 
-6a. **Regenerate `concepts.md` if concepts/ was touched.** If any task in this plan added, modified, renamed, split, or merged a file under `.ok-planner/design/concepts/`, regenerate `.ok-planner/design/concepts.md` per the format documented in `ok-planner:discover-design`'s SKILL.md (sorted alphabetical bullet list of `<slug> — <one-sentence definition>`, optional `(aliases: ...)` parenthetical). Skip this step if `concepts/` was not touched or if `.ok-planner/design/concepts/` does not exist.
+   Continue until every pass has reported DONE and passed (or skipped) its verification gate.
 
-7. **Walk the divergence report with the user.** After review reports clean, surface the divergence entries. The user decides what (if anything) to act on — typically a rework if a divergence reveals a cleaner shape worth pursuing.
+4. **Divergence audit.** Dispatch the auditor (template below). It reads the plan, the spec, and the working-tree diff across the whole plan and produces `.ok-planner/plans/<plan-basename>-divergences.md`. Surface the report's path and a one-line summary to the user, then continue.
 
-8. **Archive.** Move the plan, its divergence file, and the linked spec into
+5. **Final review.** Invoke `ok-planner:review-work` for the full implementation. Let `review-cleanup` drive the fix cycle to clean. Pass `implementer_id` and `chain_depth` to `review-cleanup` so it can decide whether to SendMessage the fixer to the original implementer or dispatch fresh.
+
+5a. **Regenerate `concepts.md` if concepts/ was touched.** If any task across the whole plan added, modified, renamed, split, or merged a file under `.ok-planner/design/concepts/`, regenerate `.ok-planner/design/concepts.md` per the format documented in `ok-planner:discover-design`'s SKILL.md (sorted alphabetical bullet list of `<slug> — <one-sentence definition>`, optional `(aliases: ...)` parenthetical). Skip this step if `concepts/` was not touched or if `.ok-planner/design/concepts/` does not exist.
+
+6. **Walk the divergence report with the user.** After review reports clean, present every divergence as a markdown table — not a summary, not "the key ones," not "here are the highlights." Every entry the auditor recorded goes in the table. The user decides what (if anything) to act on; that decision needs the full list, not your selection. Table format:
+
+   | # | Pass / Task | What the plan said | What was implemented | Inferred reason |
+   |---|-------------|--------------------|----------------------|-----------------|
+   | 1 | Pass 2 / Task 5 | ... | ... | ... |
+
+   Keep cells terse — one short phrase per cell, with a file:line where it helps. After the table, add one sentence inviting the user to flag any entry they want to act on. If the auditor reported "no meaningful divergences," say that in one line and skip the table — there's nothing to tabulate.
+
+7. **Archive.** Move the plan, its divergence file, and the linked spec into
    `.ok-planner/history/`:
    - `<plan>.md` and `<plan>-divergences.md` → `.ok-planner/history/plans/`
    - spec from the plan's `**Spec:**` header →
@@ -50,6 +68,16 @@ You are the taskmaster. You do not implement. You dispatch, verify the report, a
    moved in one short line. This is the default end-of-run step;
    skip only if the user explicitly asked you not to archive.
 
+## Chaining via SendMessage
+
+`SendMessage` to a previously-dispatched `Agent` resumes that agent's context — the implementer keeps everything it already understands about the plan, the spec, and the code it just wrote. This avoids re-paying the orientation cost on every pass and is the main mechanism by which 12-pass plans collapse to a small number of "fresh" Agent invocations.
+
+**Chain-depth cap:** `MAX_CHAIN_DEPTH = 3`. After 3 invocations on the same agent (1 fresh + 2 resumes, or 3 chained), force a fresh `Agent` for the next dispatch. This matches elves' empirical finding that chained context past ~3 sessions compacts down to lossy. Starting conservative; revisit once we have data from real runs.
+
+**Context-overflow fallback:** If a `SendMessage` resume returns an obvious context-overflow signal (the tool errors out, or the agent reports it lost track of what it was doing), dispatch a fresh `Agent` for the pass instead and reset `implementer_id` and `chain_depth`.
+
+**Cross-session resumability is undocumented.** If the user closes Claude Code and reopens, the implementer's agent ID from a prior session is not guaranteed to resume. In practice this means: treat `implementer_id` as scoped to the current `execute-plan` invocation. Subsequent `/review-work` or `/rework` invocations in the same session probably still work, but don't depend on it across CLI restarts.
+
 ## Source of truth and design docs
 
 The spec is the source of truth for this skill and for `review-work`. Design considerations are factored into the spec during `brainstorm` (which reviews the spec against the design docs before it's approved); `write-plan` then translates that approved spec into tasks. By the time work reaches `execute-plan`, the spec is the authoritative record of intent. The implementer and the auditor look to the spec — not to the design docs under `.ok-planner/design/` — for the judgments they need to make.
@@ -58,12 +86,12 @@ The spec is the source of truth for this skill and for `review-work`. Design con
 
 The implementer does not consult the design docs to decide what to build — that's already decided in the spec. The design docs as oracle are the concern of `review-holistic` (which uses them as the source of truth for whole-codebase convergence) and the read-only consultants (`brainstorm`, `refine-design`, `merge`) — those skills read the docs and capture any changes they need in a spec, which eventually flows back through this pipeline.
 
-## Subagent prompt template
+## Pass-dispatch template (fresh Agent)
 
-Dispatch a fresh `general-purpose` agent. Use this prompt verbatim, substituting the bracketed values:
+Use this for the first dispatch of any pass on a fresh `general-purpose` agent. Substitute bracketed values.
 
 Agent (general-purpose):
-  You are the implementer for this plan. You're working in a fresh context — clean slate, plenty of room. The user designed this plan and trusts you to carry it out. The orchestrator is your only correspondent.
+  You are the implementer for one pass of a multi-pass plan. You're working in a fresh context — clean slate, plenty of room. The user designed this plan and trusts you to carry out this pass. The orchestrator is your only correspondent and will dispatch the next pass to you (via SendMessage) or to a fresh agent when this one is done.
 
   ## Plan
   Path: [plan path]
@@ -73,21 +101,36 @@ Agent (general-purpose):
 
   The spec is the record of what the user wants — the business value, the reasoning, the intent behind every task. The plan is the route. When the plan's wording is imperfect or a detail doesn't quite fit reality, look at the spec for what the work is actually trying to accomplish and do that. The plan is a map, not a script.
 
-  ## Tasks
-  [Numbered list of tasks, full text verbatim from the plan — do not summarize, do not say "see the plan." The subagent should not need to look up tasks.]
+  ## This pass: [pass number and name, e.g., "Pass 2: Add session-based auth"]
+
+  - **Goal:** [from the pass header]
+  - **End state:** [working | broken-intentional (restored by Pass N)]
+  - **Verification:** [command, or "none" for broken-intentional]
+  - **Position in plan:** Pass [N] of [total]. [If not the last pass: "Subsequent passes handle [one-line summary of what's left]."] [If the last pass: "This is the final pass; the codebase must be working at the end."]
+
+  Your job is to deliver this pass — not to peek ahead at other passes, not to do work that belongs to a later pass, not to leave this pass short. If a task in this pass implies cleanup that a later pass is explicitly responsible for, leave it for that pass.
+
+  ## Tasks in this pass
+  [Numbered list of tasks belonging to this pass, full text verbatim from the plan. Use the plan's global task numbers (e.g., Tasks 4, 5, 6 if this is Pass 2 of a plan with passes 1–3 covering Tasks 1–9). Do not summarize, do not say "see the plan."]
+
+  ## End-state expectation
+
+  [If `working`: "The codebase must verify cleanly at the end of this pass. After your final task, run the pass's Verification command and confirm it exits 0 before reporting DONE. If it fails, debug and fix — that's part of this pass."]
+
+  [If `broken-intentional`: "This pass deliberately leaves the codebase non-working. Pass [N] is responsible for restoring it. Do NOT run the plan's overall build/test suite expecting it to pass — it won't, and that's intended. Do run any per-task verifications the pass specifies (e.g., `git status` confirming a file was deleted). Report DONE when every task in this pass is complete, regardless of whether the broader tree compiles."]
 
   ## Trust and judgment
 
-  The user has already weighed in by writing this plan. Every action it describes is authorized; you don't need to second-guess scope or ask for confirmation. They are not waiting for questions — they've handed off, and your job is to deliver the spec's business value.
+  The user has already weighed in by writing this plan. Every action it describes is authorized; you don't need to second-guess scope or ask for confirmation. They are not waiting for questions — they've handed off, and your job is to deliver this pass.
 
-  Use your judgment. Be creative. If you see a cleaner way to express something the plan describes, take it. If a task as written assumes a shape that doesn't quite match the code, look at the spec's intent and figure out what to build. Three similar lines is better than a premature abstraction, but a cleaner shape than the plan suggested is better than mechanical adherence. A separate divergence auditor will review the working tree after you finish and produce a record of creative choices for the user — your job is to ship the work, not to flag judgment calls back.
+  Use your judgment. Be creative. If you see a cleaner way to express something the pass describes, take it. If a task as written assumes a shape that doesn't quite match the code, look at the spec's intent and figure out what to build. Three similar lines is better than a premature abstraction, but a cleaner shape than the plan suggested is better than mechanical adherence. A separate divergence auditor will review the working tree after the full plan finishes and produce a record of creative choices for the user — your job is to ship this pass, not to flag judgment calls back.
 
   Work patiently and thoroughly. There is no clock. Finishing well matters more than finishing fast.
 
   ## Reassurances
-  - Context is the harness's concern, not yours — you have the room you need.
-  - Build errors are part of the work; debug them one at a time, no rush.
-  - Multi-file changes are normal — the plan accounts for the scope.
+  - Context is the harness's concern, not yours — you have the room you need for this pass.
+  - Build errors inside this pass are part of the work; debug them one at a time, no rush.
+  - Multi-file changes are normal — the pass accounts for the scope.
   - If a file or symbol the plan references doesn't quite exist or has a different shape than the plan assumes, that's information about the plan being slightly out of date — figure out what the spec is actually asking for and build it. Not a blocker.
   - If a task seems to conflict with something documented elsewhere (a concept, an invariant), spec intent wins for what to ship; the auditor surfaces the discrepancy for the user.
   - Anything authorized by the plan or implied by the spec's intent is safe to do.
@@ -101,38 +144,68 @@ Agent (general-purpose):
 
   ## How to report back
 
-  When every task is done and its verification passes:
+  When every task in this pass is done (and, for `working` passes, the Verification command exits 0):
 
     STATUS: DONE
 
+    Pass: [pass number and name]
     Tasks:
-    - 1: done — <one-line summary of what was built/changed>
-    - 2: done — <one-line summary>
+    - [N]: done — <one-line summary of what was built/changed>
+    - [N+1]: done — <one-line summary>
     - ...
-    (One line per task. Every task gets a status.)
+    Verification: [pass | skipped (broken-intentional)]
 
   If a permitted BLOCKED condition genuinely applies:
 
     STATUS: BLOCKED — bullet <1 or 2>
 
+    Pass: [pass number and name]
     <Specific situation: what credential is needed, or what destructive action the plan would require.>
 
     Tasks:
-    - 1: done — <summary>
-    - 2: not-done — blocked on bullet <1 or 2>
+    - [N]: done — <summary>
+    - [N+1]: not-done — blocked on bullet <1 or 2>
     - ...
 
-  Do not invent other statuses. DONE means done; BLOCKED means one of the two bullets applies. If you're tempted to write "PARTIAL" or to list a task as not-done with any other reason, stop — the right answer is to deliver the work.
+  Do not invent other statuses. DONE means this pass is done; BLOCKED means one of the two bullets applies. If you're tempted to write "PARTIAL" or to list a task as not-done with any other reason, stop — the right answer is to deliver this pass.
 
   ## Rules
   - Read files before editing.
   - Implement what each task is asking for. Deviations from the literal wording are fine when spec intent is clearer — the auditor will catch them.
-  - Run the verifications each task specifies. If a verification fails, debug and fix — that's part of the task.
+  - Run the verifications each task specifies. For `working` passes, also run the pass-level Verification command before reporting DONE.
+  - Stay within this pass. Don't do work belonging to other passes.
   - Do NOT commit. The user commits when they are ready.
+
+## Pass-continuation template (SendMessage to existing implementer)
+
+Use this when chaining the next pass to the same implementer via `SendMessage` (chain depth permitting). It's short on purpose — the implementer already knows the plan, the spec, and the codebase.
+
+  Pass [N-1] verified [pass | skipped]. Next: **Pass [N]: [name]**.
+
+  - **Goal:** [from the pass header]
+  - **End state:** [working | broken-intentional (restored by Pass M)]
+  - **Verification:** [command, or "none"]
+  - **Position in plan:** Pass [N] of [total]. [Same forward-look snippet as the fresh template.]
+
+  ### Tasks in this pass
+  [Numbered list of tasks belonging to this pass, full text verbatim. Use the plan's global task numbers.]
+
+  Same trust frame, same BLOCKED bullets, same reporting format as the previous pass. Report DONE (with the per-task summary and verification status) or BLOCKED when finished.
+
+## Re-dispatch directive template (verification failed on a `working` pass)
+
+When step 3(c) finds a `working` pass's Verification exited non-zero, re-dispatch the same pass to the same implementer (chain budget permitting; otherwise fresh) with this directive prepended:
+
+  Pass [N] reported DONE but its Verification command failed:
+
+      $ [command]
+      [first ~40 lines of output, or full output if shorter]
+
+  Debug and fix. The pass isn't done until Verification passes. Report DONE again when it does, or BLOCKED only if a permitted bullet applies.
 
 ## Divergence audit
 
-When the implementer reports STATUS: DONE, dispatch a fresh `general-purpose` agent as the divergence auditor. This step is not a code review — it is a record of creative choices, produced for the user before review begins.
+After every pass has reported DONE and passed (or skipped) its verification gate, dispatch a fresh `general-purpose` agent as the divergence auditor — always fresh, never via SendMessage to the implementer. The auditor needs a cold reader's view of the diff, uncolored by what the implementer thought it was doing. This step is not a code review — it is a record of creative choices, produced for the user before review begins.
 
 Agent (general-purpose):
   You are the divergence auditor for a plan the implementer just finished. Your only job is to produce an honest, useful record of where the working tree differs from what the plan literally said, so the user knows what creative choices were made.
@@ -173,26 +246,30 @@ Save path: `.ok-planner/plans/<plan-basename>-divergences.md`. After the auditor
 
 ## Re-dispatch
 
-The orchestrator re-dispatches whenever the implementer's report is off-pattern — not a clean DONE and not a genuinely-valid BLOCKED. Re-dispatch is a sharpening, not a punishment: the same trust framing, the same template, with a short note from the orchestrator explaining why the prior report didn't qualify.
+The orchestrator re-dispatches whenever the implementer's report on the current pass is off-pattern — not a clean DONE on this pass and not a genuinely-valid BLOCKED. Re-dispatch is a sharpening, not a punishment: same trust framing, same template, with a short note from the orchestrator explaining why the prior report didn't qualify.
 
-When you re-dispatch:
-- Use the same subagent prompt template.
-- Update the "Tasks" list to only include tasks not yet done.
+When you re-dispatch a pass:
+- Use the pass-dispatch template (or the continuation template if chaining via SendMessage).
+- Update the "Tasks in this pass" list to only include tasks within this pass that aren't yet done.
 - Insert a `## Note from the orchestrator` section above the tasks list with:
   - What the prior dispatch reported (one short paragraph, verbatim quotes where useful)
-  - Specifically why it didn't qualify (e.g., "BLOCKED bullet 1 requires credentials only the user can provide; the situation you described — coupling between modules X and Y — does not match bullet 1. Use spec intent and deliver the work.")
-  - A reminder of the trust frame: figure it out from spec intent, deliver the work, the auditor records divergences.
+  - Specifically why it didn't qualify (e.g., "BLOCKED bullet 1 requires credentials only the user can provide; the situation you described — coupling between modules X and Y — does not match bullet 1. Use spec intent and deliver the pass." Or: "Verification command exited 2; debug and fix.")
+  - A reminder of the trust frame: figure it out from spec intent, deliver the pass, the auditor records divergences.
 - Keep the positive framing of the rest of the prompt intact. The re-dispatch is firmer, not harsher.
 
-**Cap.** After 2 re-dispatches (3 dispatches total) that still don't produce a clean DONE or a valid BLOCKED, escalate to the user. At that point the orchestrator's nudging isn't getting through and the user should decide.
+**Cap (per pass).** After 2 re-dispatches on the same pass (3 dispatches total for that pass) that still don't produce a clean DONE or a valid BLOCKED, escalate to the user. The cap is per-pass, not per-plan — earlier passes that succeeded don't count.
+
+**Chain considerations on re-dispatch.** If a re-dispatch is needed and the implementer is still in chain budget, prefer `SendMessage` — the implementer already knows what it just tried and the directive lands in context. If the chain is at the cap, dispatch fresh; the fresh agent gets the full pass-dispatch template plus the `## Note from the orchestrator`.
 
 ## Escalation
 
-Escalation is rare. Only two cases:
+Escalation is rare. Only three cases:
 
-1. **Genuinely valid BLOCKED.** The implementer reported BLOCKED, and on inspection the reason really does match bullet 1 (credentials/access the user must provide) or bullet 2 (unauthorized destructive action). The implementer cannot proceed without user input. Surface the report verbatim, the plan path, and the remaining tasks. Wait for the user's decision.
+1. **Genuinely valid BLOCKED.** The implementer reported BLOCKED on the current pass, and on inspection the reason really does match bullet 1 (credentials/access the user must provide) or bullet 2 (unauthorized destructive action). The implementer cannot proceed without user input. Surface the report verbatim, the plan path, the current pass, and the remaining passes. Wait for the user's decision.
 
-2. **Re-dispatch cap reached.** After 3 dispatches the implementer still hasn't returned a clean DONE or a valid BLOCKED. Surface all dispatch reports verbatim, your read of why nudges aren't getting through, and the available options: (a) the user sharpens the brief themselves and you re-dispatch, (b) rework the plan, (c) abandon.
+2. **Re-dispatch cap reached on a pass.** After 3 dispatches on the same pass, the implementer still hasn't returned a clean DONE or a valid BLOCKED. Surface all dispatch reports for that pass verbatim, your read of why nudges aren't getting through, and the available options: (a) the user sharpens the brief themselves and you re-dispatch, (b) rework the pass (or the plan), (c) abandon.
+
+3. **Plan-level inconsistency.** Step 3(d) found a `broken-intentional` pass naming a restorer that doesn't exist in the plan. The plan is internally inconsistent and `execute-plan` cannot proceed safely. Surface the offending pass and the missing restorer; the user takes it back to `write-plan` (or fixes the plan inline).
 
 Anything else — PARTIAL, coupling discoveries, "I'd rather discuss this," misapplied BLOCKED, judgment-call requests — is not an escalation. Re-dispatch.
 
@@ -200,13 +277,15 @@ Anything else — PARTIAL, coupling discoveries, "I'd rather discuss this," misa
 
 After the divergence audit completes and you've surfaced it to the user, invoke `ok-planner:review-work` for the full implementation. Do NOT dispatch your own reviewer — `review-work` runs `review-cleanup`, which drives the fix cycle to clean.
 
-After the review reports clean, walk the divergence entries with the user. Reworks come from this conversation — the user decides which (if any) divergences warrant going back and expressing the work more cleanly.
+After the review reports clean, walk the divergence entries with the user using the table format from Process step 6 (every entry, not a selection). Reworks come from this conversation — the user decides which (if any) divergences warrant going back and expressing the work more cleanly. They can only make that call against the full list.
 
 ## Rules
 
-- One subagent at a time. Never dispatch in parallel.
-- The orchestrator dispatches and tracks progress; it does not implement.
+- One subagent at a time. Never dispatch passes in parallel.
+- The orchestrator dispatches each pass, gates on its verification, and advances; it does not implement.
 - The orchestrator does not interrupt the subagent mid-dispatch.
-- Review happens once, at the end — not between dispatches.
+- Review happens once, after all passes are DONE — not between passes.
+- Per-pass verification (between passes) is not "review" — it's a fast machine check that exits 0 or doesn't. If you need human judgment about whether a pass succeeded, the verification command isn't tight enough; that's a plan defect, not a step to insert here.
+- Track `implementer_id` and `chain_depth` across passes. Don't dispatch fresh when you could SendMessage within the cap. Don't extend a chain past `MAX_CHAIN_DEPTH = 3`.
 - Do not commit at any point. The user commits when ready.
 - Never start work on `main`/`master` without explicit user consent.

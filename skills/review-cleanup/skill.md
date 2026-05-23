@@ -25,12 +25,48 @@ Called by the orchestrator after receiving a reviewer's output that contains aut
 
 ## Process
 
-1. Dispatch a **fixer subagent** with the reviewer's full output
+1. Dispatch a **fixer** with the reviewer's full output. See "Choosing the fixer" below for fresh-Agent vs. SendMessage selection.
 2. When the fixer reports done, dispatch the **same reviewer prompt** to verify
 3. If the reviewer finds new issues, go to step 1
 4. Only report clean to the user when the reviewer returns zero issues
 
-## Fixer Subagent Prompt
+## Choosing the fixer: SendMessage vs. fresh Agent
+
+If the calling skill passed an `implementer_agent_id` (currently only `execute-plan` does, after running passes) and the implementer's chain depth is below `MAX_CHAIN_DEPTH = 3`, prefer `SendMessage` to that implementer over dispatching a fresh `Agent`. The implementer already understands the code it just wrote; reviewer findings slot into its context naturally and avoid paying the cold-read cost.
+
+Use the SendMessage continuation template (see "Fixer SendMessage template") in that case. Otherwise, dispatch a fresh general-purpose Agent with the standard "Fixer Subagent Prompt."
+
+Each fix-review cycle costs one chained invocation on the implementer (the fix; the re-review is always a fresh reviewer). If the chain hits its cap mid-cleanup, switch to a fresh fixer for subsequent cycles — note this to the orchestrator in passing but don't surface to the user; it's an implementation detail.
+
+If you don't have an `implementer_agent_id` (this skill was invoked from `/review-files`, `/review-work` on uncommitted changes the user wrote by hand, etc.), dispatch fresh. Don't fabricate an ID.
+
+## Fixer SendMessage template (when chaining the implementer)
+
+Use this when SendMessage-ing the implementer with reviewer findings:
+
+  A code reviewer found the following issues in the work you just finished. Fix ALL of them. Do not skip any. Do not assess priority. Do not defer any issue. Do not mark any issue as "acceptable", "cosmetic", "pre-existing", "out of scope", or "not blocking".
+
+  If an issue is in code you didn't write, fix it anyway.
+  If an issue predates the current work, fix it anyway.
+  If an issue seems minor, fix it anyway.
+
+  ### Issues to fix
+
+  [PASTE THE REVIEWER'S FULL OUTPUT HERE — do not summarize or filter]
+
+  ### Rules
+  - Read files before editing (you may need to re-read files you touched earlier in the chain — your memory of them might be stale).
+  - Run the appropriate verification commands after fixes.
+  - Do NOT commit.
+  - If genuinely blocked on an issue (e.g., requires credentials), explain why — but "low priority" is never a valid reason to skip.
+  - **Missing `@concept:` annotations:** if any input issue includes a "consulted concept: <slug> (annotation missing at <file:line>)" marker, add the `@concept: <slug>` annotation at that file:line as part of fixing the related issue.
+
+  ### Completion check
+  Before reporting done, re-read the issue list and confirm every numbered issue has a corresponding fix.
+
+  Report: DONE (with a numbered list mapping each issue to what you did) | BLOCKED (with specific explanation).
+
+## Fixer Subagent Prompt (fresh Agent)
 
 ```
 Agent (general-purpose):
