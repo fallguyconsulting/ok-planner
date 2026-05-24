@@ -56,6 +56,7 @@ user owns that.
 - Do **not** use tools that constrain the user's reply to a predetermined structure (e.g. `AskUserQuestion`, poll-style pickers, forced single-select widgets). Ask in prose so the user can answer in prose, pick a letter, push back, reframe the question, or go off-script.
 - Focus on purpose, constraints, success criteria
 - Scope is the user's call. If it feels unclear or sprawling, ask — do not unilaterally decompose into sub-projects.
+- Sequencing and task ordering are `write-plan`'s concern — defer if it comes up, unless the ordering choice is load-bearing for the design (it enables an invariant, rules out a footgun, picks between materially different futures), in which case it's a design decision and stays in the spec.
 
 ## Presenting the Design
 

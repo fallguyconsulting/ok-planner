@@ -84,10 +84,12 @@ conforms to them, because the design docs and the code change as one unit.
 The spec is the source of truth for the plan. Brainstorm reviewed
 the spec against the design docs already; the plan does not re-check
 it. Translate the spec faithfully into executable tasks and trust
-the spec. If the spec is genuinely unworkable (contradictory,
-missing required context, references things that do not exist),
-surface that to the user before writing the plan. Do not silently
-narrow the scope.
+the spec. Don't restate the spec's rationale; the plan's voice is
+operational (which file, what edit, what verification), and tasks
+that need design context link to the spec section by name. If the
+spec is genuinely unworkable (contradictory, missing required
+context, references things that do not exist), surface that to the
+user before writing the plan. Do not silently narrow the scope.
 
 ## Autonomous Execution Required
 
