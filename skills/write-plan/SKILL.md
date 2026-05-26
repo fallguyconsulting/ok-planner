@@ -9,7 +9,7 @@ Write implementation plans assuming the implementer has zero codebase context. D
 
 **Save plans to:** `.ok-planner/plans/YYYY-MM-DD-<feature-name>.md` (user preferences override)
 
-**Before writing:** invoke `ok-planner:init` to ensure `.ok-planner/plans/` exists.
+**Before writing:** invoke `ok-planner:affirm` to ensure `.ok-planner/plans/` exists.
 
 <USER-DECISIONS>
 When this skill calls for surfacing a question to the user (e.g., the spec is unworkable, the scope is unclear), surface it and wait for the response. Specifically, do not:

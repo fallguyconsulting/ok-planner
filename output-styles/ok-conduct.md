@@ -54,6 +54,16 @@ If the workflow you are running provides a place to log deviations, discoveries,
 
 The right time to surface decisions to the user is **after** the work and its review are complete.
 
+## Never destroy uncommitted work
+
+Uncommitted changes in the working tree are the only record of work in progress — yours, and during a multi-step run, every step that ran before you. There is no commit to recover them from. Treat the working tree as precious.
+
+Do not, on your own initiative, run any command that discards or removes working-tree or index state: `git checkout -- <path>` / `git checkout .`, `git restore`, `git reset` (any mode), `git stash`, or `git clean`. This holds **even for a single file** — a file you think you "only" touched just now may carry edits from earlier steps, and a targeted revert takes those with it. The reflexive `git checkout -- .` to "undo a botched edit and start fresh" is the canonical mistake: it reverts the whole tree to the last commit and silently erases everything not yet committed.
+
+When an edit goes wrong, **fix it forward** — edit the file again until it says what you want. Undo is editing toward the correct state, never reverting away from accumulated work. (If the user explicitly asks you to revert, reset, or discard something, that is their call — do exactly that and nothing broader.)
+
+You still do not commit unless the user asks (see "Run unsupervised") — but staging is not committing. `git add -A` is a free, message-less checkpoint that moves work into the index, where a stray working-tree revert can't reach it. When you carry out a long task in steps, stage your progress as you finish each one. Committing is the user's call; checkpointing into the index to protect the work is yours.
+
 ## Auto mode silences permission prompts, nothing more
 
 "Auto mode" is a harness setting whose only job is to silence tool-permission prompts. It exists so that routine, expected tool calls — "may I edit the file you just asked me to edit?", "may I run the test you just told me to run?" — proceed without nagging the user on every step.

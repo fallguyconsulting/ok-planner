@@ -1,42 +1,35 @@
 ---
-name: init
-description: "Ensure .ok-planner/ artifact directories exist. Invoked by other ok-planner skills before producing artifacts; also user-invokable as `/init` (idempotent layout check) or `/init --refresh` (update the embedded .ok-planner/CLAUDE.md to the current template, with diff + user confirmation)."
+name: affirm
+description: "Affirm the .ok-planner/ artifact layout: create directories if absent, write or overwrite the embedded `.ok-planner/CLAUDE.md` to match the current template (the file is skill-owned boilerplate; drift is overwritten without prompting). Idempotent. Invoked by other ok-planner skills before producing artifacts; also user-invokable as `/affirm`."
 ---
 
-# Initialize ok-planner artifact layout
+# Affirm ok-planner artifact layout
 
-Ensures the `.ok-planner/` directory tree exists at the project root so the
-brainstorm, sketch, write-plan, and execute-* skills have somewhere to write
-their artifacts. Idempotent: re-running is a no-op.
+Ensures the `.ok-planner/` directory tree exists at the project root and that the embedded `.ok-planner/CLAUDE.md` matches the current template. **Unified semantics:** create what's absent, update what's present and out of date. Idempotent — re-running on a project that's already in compliance is a silent no-op.
 
 ## Why this skill exists
 
-ok-planner artifacts (specs, plans, sketches, divergence reports) are
-**workflow scratch**, not project documentation. They describe how a piece
-of work was conceived and executed at a point in time — they are not
-intended to be kept in sync with the codebase as it evolves.
+ok-planner artifacts split into two kinds with different rules:
 
-Putting them under a dotfile-prefixed directory (`.ok-planner/`) signals
-this clearly to future agents: this is the planner's scratchpad, not docs
-the agent should helpfully update during unrelated work.
+- **Workflow scratch** (`specs/`, `plans/`, `sketches/`, `history/`) — point-in-time records of how a piece of work was conceived and executed. Not living documentation.
+- **Durable design docs** (`design/`) — the project's canonical noun catalog. A source of truth with the same weight as code; mutated only through plan execution.
+
+Putting both under `.ok-planner/` with an embedded `CLAUDE.md` signals to any agent that wanders in: this is the planner's directory, treat it correctly, don't help by "fixing" the workflow scratch or by editing the design docs outside the plan pipeline.
+
+The CLAUDE.md template evolves alongside the skills. `affirm` keeps the embedded copy aligned with the current template by overwriting it whenever it differs. The file is skill-owned boilerplate — `.ok-planner/` is the planner's own folder — so there are no user customizations to preserve and no confirmation to ask for.
 
 ## When invoked
 
-Called by other ok-planner skills as their first step when they're about to
-produce or move artifacts:
+Called by other ok-planner skills as their first step when they're about to produce or move artifacts:
 
 - `brainstorm` — before writing a spec
 - `sketch` — before writing a sketch
 - `write-plan` — before writing a plan
-- `execute-plan` — before dispatching the implementer, and again
-  before archiving the plan on completion
+- `execute-plan` — before dispatching the implementer, and again before archiving the plan on completion
+- `discover-design` — before bootstrapping the design docs
+- `refine-design` — before tension-resolution intake
 
-Also safe for the user to invoke directly:
-- `/init` — ensure the layout exists. Idempotent.
-- `/init --refresh` — refresh the embedded `.ok-planner/CLAUDE.md`
-  template to match the current skill set. Use when the ok-planner
-  skills have been updated and the CLAUDE.md in the project
-  predates the new framing. See "Refreshing CLAUDE.md" below.
+Also safe for the user to invoke directly via `/affirm`. There is one command; it always does the same thing.
 
 ## Layout
 
@@ -58,21 +51,13 @@ Also safe for the user to invoke directly:
     plans/           # archived plans + divergence reports (after plan execution completes) — workflow scratch
 ```
 
-Most subdirectories are workflow scratch — point-in-time records of how
-something was conceived. The `design/` subdirectory is the exception:
-it's the durable design docs — a concept catalog plus tensions, a
-source of truth with the same weight as code. Mutated only through
-plan execution. The embedded `CLAUDE.md` explains this distinction
-so future agents treat the directories correctly.
+Most subdirectories are workflow scratch — point-in-time records of how something was conceived. The `design/` subdirectory is the exception: it's the durable design docs — a concept catalog plus tensions, a source of truth with the same weight as code. Mutated only through plan execution. The embedded `CLAUDE.md` explains this distinction so future agents treat the directories correctly.
 
 ## Process
 
-1. Resolve the project root. Use the working directory the user invoked
-   Claude Code from (`pwd`). If a `.git` directory is found at or above
-   that, use the directory containing `.git` as the root. Otherwise use
-   the working directory.
+1. **Resolve the project root.** Use the working directory the user invoked Claude Code from (`pwd`). If a `.git` directory is found at or above that, use the directory containing `.git` as the root. Otherwise use the working directory.
 
-2. Create any missing directories:
+2. **Affirm directories.** Create any missing directories under `.ok-planner/`:
    - `.ok-planner/specs/`
    - `.ok-planner/plans/`
    - `.ok-planner/sketches/`
@@ -82,24 +67,21 @@ so future agents treat the directories correctly.
 
    Use `mkdir -p` so existing directories are left untouched.
 
-3. Handle `.ok-planner/CLAUDE.md`:
+3. **Affirm `.ok-planner/CLAUDE.md`.** This file is skill-owned boilerplate, not user content. `.ok-planner/` is the planner's own folder and the embedded `CLAUDE.md` is regenerated from the template below — users are not expected to edit it, so there is nothing to preserve. Affirm simply keeps it current:
 
-   **Default (no `--refresh` argument).** If the file does not exist,
-   write it with the content below. If it already exists, leave it
-   alone — the user may have customized it. Then check the existing
-   file for stale-framing markers (see "Refreshing CLAUDE.md"); if
-   any are found, surface a one-line notification suggesting
-   `/init --refresh`. The notification does not block the rest of
-   init from finishing.
+   a. Generate the current template content from the embedded copy below (Process step 4).
 
-   **With `--refresh` argument.** Regenerate the CLAUDE.md from the
-   template, show the user a diff against the existing file, and
-   only overwrite with the user's explicit confirmation. See
-   "Refreshing CLAUDE.md" below for the full flow.
+   b. If `.ok-planner/CLAUDE.md` does not exist: write the template. Report "Wrote `.ok-planner/CLAUDE.md`."
 
-   The point of this file is to give any agent that wanders into
-   `.ok-planner/` an explicit, in-folder instruction to leave it
-   alone.
+   c. If it exists and matches the current template byte-for-byte: silent no-op for the file (the dir-affirm in step 2 may still have a one-line report).
+
+   d. If it exists and differs from the current template — for any reason (version drift, or a stray local edit): **overwrite it with the template. No diff, no prompt, no confirmation.** Report "Refreshed `.ok-planner/CLAUDE.md` to the current template." The template is authoritative; the file is not the user's to customize, so there is nothing to weigh and no question to ask.
+
+   This behavior is identical whether affirm was invoked by the user via `/affirm` or by another skill mid-pipeline — it never interrupts a run to ask about this file.
+
+4. **Template content for `.ok-planner/CLAUDE.md`.**
+
+   The point of this file is to give any agent that wanders into `.ok-planner/` an explicit, in-folder instruction to leave it alone (workflow scratch) or to treat it as oracle-with-discipline (design docs).
 
    ````markdown
    # .ok-planner — mostly workflow folder, with one durable subdirectory
@@ -199,7 +181,10 @@ so future agents treat the directories correctly.
       - `write-plan` reads to plan spec-directed mutations as
         first-class tasks.
       - `review-work` and `review-plan` read to verify that
-        spec-directed mutations landed correctly.
+        spec-directed mutations landed correctly. `review-work`
+        additionally runs an independent design-doc compliance
+        cycle that audits the design docs against the concept
+        self-containment rule (see below).
 
    Layout (created by `/discover-design`):
    - `_discover/` — as-is scaffolding. Wide, detailed, possibly
@@ -235,6 +220,50 @@ so future agents treat the directories correctly.
    - **DO NOT mutate `tensions/` entries outside the spec
      pipeline** — those entries record what the project considers
      unresolved.
+
+   #### Concept self-containment rule
+
+   Concept body is **self-contained**. The design owns the
+   definition; code references the design via `@concept:`
+   annotations, not the other way around. A refactor that moves
+   files around does not invalidate a concept, and an external
+   doc that moves to another repo does not orphan one. To make
+   that durable, citations in concept body are restricted to
+   forms that survive the codebase moving.
+
+   **Allowed in concept body:**
+   - Other concept slugs (`see also: claim-handle`,
+     `concept:claim-handle`).
+   - Annotation IDs the codebase uses (`@blessed-invariant: N`,
+     `@agent-contract: X`) — IDs are stable across file moves;
+     paths are not.
+   - Spec slugs in dated Notes entries
+     (`spec:YYYY-MM-DD-<topic>`).
+   - Dates.
+
+   **Disallowed in concept body:**
+   - File or directory paths in any form (`foo/bar.go`,
+     `services/widget/`, `pkg:github.com/...`, bare URLs,
+     `code:foo.go::Symbol`, "the code at X" pointers).
+   - References to external documentation (`docs/...`, READMEs,
+     CHANGELOG, sibling-repo paths).
+   - Quoted code, quoted lint-config allowlists, quoted external
+     prose.
+   - "Owns / Does NOT own" sections that name code paths.
+     Boundaries is the in-vs-out section; it names neighbor
+     concepts by slug.
+
+   **For tensions:** the same self-containment rule applies to
+   `## Resolution candidates` — resolutions become spec
+   instructions and live forward in time, so they must be
+   path-free. `## What is muddy` and `## Evidence` are
+   point-in-time snapshots and may cite code as evidence.
+
+   The canonical statement of the rule lives in
+   `ok-planner:discover-design`'s SKILL.md ("Concept
+   self-containment rule" and "Tension surface rule"). The
+   `review-work` skill's design-doc compliance cycle audits the
+   live design docs against this rule on every review.
 
    #### Consulting the design docs: read `concepts.md` first
 
@@ -292,98 +321,23 @@ so future agents treat the directories correctly.
      a plan (workflow scratch)
    ````
 
-4. Report back to the calling skill (or user, if invoked directly) with
-   one short line stating what was created vs. already present. Do not
-   produce a long explanation.
-
-## Refreshing CLAUDE.md
-
-The embedded `.ok-planner/CLAUDE.md` template evolves alongside the
-ok-planner skills. When the skill set is updated (terminology
-changes, new conventions, etc.), an existing project's CLAUDE.md
-can fall behind and contradict the current skills. This section
-covers detecting that gap and bringing the file up to date.
-
-### Stale-framing markers
-
-The current template uses specific terminology that earlier
-templates did not. If an existing `.ok-planner/CLAUDE.md` contains
-any of these literal strings, the file predates the current
-framing:
-
-- `design log` (the durable docs are now "design docs")
-- `implementation notes` or `-notes.md` (the post-execution
-  artifact is now the divergence report, `-divergences.md`)
-- `Tensions resolved` (the spec section is now `## Design changes`,
-  unifying tension and concept mutations)
-- "any agent ... should consult" framing for the design docs
-  (consultation is now scoped to specific skills, not blanket)
-
-When a default `/init` run sees one of these markers in the
-existing CLAUDE.md, surface a one-line notification:
-
-  > Your `.ok-planner/CLAUDE.md` predates the current skill
-  > framing — run `/init --refresh` to update it (you'll review
-  > a diff before any overwrite).
-
-Do not block. Do not auto-update. The user decides when to refresh.
-
-### `/init --refresh` flow
-
-When invoked with `--refresh`:
-
-1. Read the existing `.ok-planner/CLAUDE.md` from disk. If the
-   file does not exist, treat this as a default `/init` (write
-   the template fresh, report, done).
-2. Generate the current template content as a string (the same
-   content shown above in step 3 of the Process section).
-3. Show the user a unified diff between the existing file and the
-   new template (use `diff -u` via Bash on temp files, or render
-   the diff inline if the file is small). Make sure the diff is
-   actually visible — this is the user's chance to spot
-   customizations that would be lost.
-4. Ask the user: "Overwrite, keep current, or merge manually?"
-   - **Overwrite**: write the new template to
-     `.ok-planner/CLAUDE.md`, replacing the existing content
-     entirely.
-   - **Keep current**: do nothing. The file stays as-is.
-   - **Merge manually**: print the new template content in a
-     fenced code block, tell the user to copy-paste the parts they
-     want, and exit without writing. The user handles the merge in
-     their own editor.
-5. Report the outcome in one line ("CLAUDE.md refreshed."
-   / "CLAUDE.md unchanged." / "New template printed; merge
-   manually.").
-
-Custom edits to a CLAUDE.md are not migrated automatically. The
-diff exists so the user can see what they'd lose; if there are
-custom sections worth keeping, the "merge manually" path is the
-right one. This is intentionally low-tech — refreshes should be
-rare and worth a few minutes of attention from the user.
+5. **Report back** to the calling skill (or user, if invoked directly) with one short line stating what was created vs. already present vs. updated. Do not produce a long explanation.
 
 ## Reporting
 
 Keep output minimal. Examples:
 
-- First run: "Initialized `.ok-planner/` layout."
-- Subsequent runs: "`.ok-planner/` layout already present."
-- Partial: "Created `.ok-planner/sketches/` and `.ok-planner/history/`;
-  rest already present."
-- Stale CLAUDE.md detected: append "Note: `.ok-planner/CLAUDE.md`
-  predates the current framing — run `/init --refresh` to update."
-- After `/init --refresh` overwrite: "CLAUDE.md refreshed."
-- After `/init --refresh` keep-current: "CLAUDE.md unchanged."
-- After `/init --refresh` merge-manually: "New template printed;
-  merge manually."
+- First run: "Affirmed `.ok-planner/` layout (created dirs + CLAUDE.md)."
+- Already in compliance: "`.ok-planner/` layout already in compliance."
+- Partial: "Created `.ok-planner/sketches/` and `.ok-planner/history/`; rest already present."
+- CLAUDE.md drift (overwritten): "Refreshed `.ok-planner/CLAUDE.md` to the current template."
 
 The calling skill should continue immediately after this skill reports.
 
 ## What this skill does NOT do
 
-- Does not modify `.gitignore`. Whether `.ok-planner/` is tracked in git
-  is the user's decision.
-- Does not delete or move existing files.
+- Does not modify `.gitignore`. Whether `.ok-planner/` is tracked in git is the user's decision.
+- Does not modify any file under `.ok-planner/` other than `CLAUDE.md`. It overwrites `CLAUDE.md` (skill-owned boilerplate) but never touches specs, plans, sketches, design docs, or history.
 - Does not validate the contents of existing artifacts.
-- Does not rename or migrate artifacts from other locations
-  (e.g., `docs/specs/` from older versions of these skills). Migration is
-  a one-time user-driven task, not something this skill handles silently.
+- Does not rename or migrate artifacts from other locations (e.g., `docs/specs/` from older versions of these skills). Migration is a one-time user-driven task, not something this skill handles silently.
+- Does not preserve local edits to `.ok-planner/CLAUDE.md`. The file is not a user-customization surface — it is regenerated from the template, and any drift is overwritten on the next affirm. Project-specific guidance belongs in the project's own `CLAUDE.md` at the repo root, not in `.ok-planner/CLAUDE.md`.

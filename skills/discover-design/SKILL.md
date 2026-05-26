@@ -98,7 +98,7 @@ concept, the skill dispatches a focused re-discovery for just those
 areas, then re-runs the extractor and reviewer for the affected
 concepts only. Capped at one back-edge per skill invocation.
 
-1. Run `ok-planner:init` to ensure `.ok-planner/` layout exists.
+1. Run `ok-planner:affirm` to ensure `.ok-planner/` layout exists.
 2. Create `.ok-planner/design/_discover/`, `.ok-planner/design/concepts/`,
    and `.ok-planner/design/tensions/` if absent.
 3. Detect state:
@@ -195,6 +195,77 @@ concepts only. Capped at one back-edge per skill invocation.
 
 The skill does not prompt the user mid-run. The final report is the
 only thing the user sees during this skill's execution.
+
+## Shared rule blocks (transclude into dispatches)
+
+Some embedded prompts below carry `{{SELF-CONTAINMENT-RULE}}` and
+`{{TENSION-SURFACE-RULE}}` placeholders. When you assemble a subagent
+prompt for dispatch, replace each placeholder with the **body** of the
+matching `###` block in this section (the prose under the header, not
+the header line) — the same substitution you already do for the
+bracketed `[plan path]`-style values. The convention: `{{...}}` flags a
+static block to inline; `[...]` flags a per-run value to fill.
+
+These two rules govern what may appear in concept bodies and tension
+resolution sections. Three separately-dispatched subagents need them —
+the extractor (which authors the docs), the extraction reviewer (which
+audits them), and the back-edge extractor (which mutates them). Each is
+its own dispatch and sees only its own prompt, so defining the rules
+once here and transcluding them keeps the wording from drifting between
+the agent that writes and the agent that checks.
+
+### {{SELF-CONTAINMENT-RULE}}
+
+Concept body is self-contained. The design owns the definition; code
+references it via `@concept:` annotations. A refactor that moves files
+around does not invalidate a concept, and an external doc that moves to
+another repo does not orphan one. Citations in concept body are
+restricted to forms that survive the codebase moving.
+
+**Allowed in concept body:**
+- Other concept slugs: `see also: claim-handle`, `concept:claim-handle`.
+- Annotation IDs the codebase uses (e.g. `@blessed-invariant: 4`,
+  `@agent-contract: X`) — the ID is stable across file moves; the file
+  path is not.
+- Spec slugs in dated Notes entries (e.g.
+  `spec:2026-05-15-data-platform-extensions-design`).
+- Dates.
+
+**Disallowed in concept body:**
+- File or directory paths (`foo/bar.go`, `pkg:foo/bar/baz`,
+  `services/widget/`, etc.) — bare or in any citation form, in-tree or
+  in a sibling repo.
+- Citation forms `code:foo.go::Symbol`, `pkg:github.com/...`, bare
+  URLs, "the code at X" pointers.
+- References to external documentation (`docs/...`, READMEs, CHANGELOG,
+  sibling-repo paths).
+- Quoted code, quoted lint-config allowlists, or quoted external prose.
+  If a property matters, state it as a property of the concept; the
+  code is responsible for enforcing it.
+- "Owns / Does NOT own" sections that name code paths. Boundaries is
+  the in-vs-out section, and it names neighbor concepts by slug.
+
+If a concept feels like it can't say what it needs to without naming a
+file, that's either (a) a hint that the concept's boundary is muddier
+than the current text claims — file a tension — or (b) material that
+belongs in the `_discover/` scaffolding (Code surface section), not in
+the concept body.
+
+### {{TENSION-SURFACE-RULE}}
+
+The `## Evidence` section is a snapshot — it documents the specific code
+or prose that motivated the tension, and may rot when the cited surface
+moves. That's expected; tensions are point-in-time observations of
+muddiness. Code-citation evidence is fine in `## What is muddy` and
+`## Evidence`.
+
+The `## Resolution candidates` section is different: resolutions become
+spec instructions, and the spec lives forward in time. State resolution
+shapes as durable concept mutations (which concept's Definition /
+Boundaries / Invariants change, and how) and as durable code-discipline
+changes (what property the code will hold). Resolution shapes must NOT
+cite specific files, paths, or symbols — those will rot before the
+tension gets resolved.
 
 ## Phase 1 — Discoverer Subagent Prompt
 
@@ -546,6 +617,10 @@ Agent (general-purpose):
   entry.>
   ```
 
+  ### Concept self-containment rule
+
+  {{SELF-CONTAINMENT-RULE}}
+
   ### What is a tension?
 
   Anything about the as-is design that is sloppy, unspecified,
@@ -604,6 +679,10 @@ Agent (general-purpose):
   entries.>
   ```
 
+  ### Tension surface rule
+
+  {{TENSION-SURFACE-RULE}}
+
   ### Anti-padding
 
   - Don't manufacture tensions. If a topic is clear in
@@ -613,6 +692,13 @@ Agent (general-purpose):
   - Don't grade severity.
   - Don't write more than one concept file for the same noun.
     Merge if you find duplicates.
+  - Don't introduce code-path citations into concept body. The
+    concept owns the definition; code references it via
+    `@concept:`. See the "Concept self-containment rule"
+    above.
+  - Don't introduce path or symbol citations into a tension's
+    `## Resolution candidates` section. See the "Tension
+    surface rule" above.
 
   ### Report
 
@@ -658,6 +744,11 @@ Agent (general-purpose):
     refers to something else).
   - **`Open within this concept` items have tensions/ entries**:
     every open item should have a corresponding tension file.
+  - **Concept body is self-contained**: audit every concept body
+    against the self-containment rule reproduced under "Rules
+    being enforced" below. Pre-existing violations (in concept
+    files the current extraction didn't author) are still issues
+    — flag every one you find.
 
   ### What to check on tensions
 
@@ -670,12 +761,28 @@ Agent (general-purpose):
   - **`Resolution candidates` lists actual shapes, not generic
     advice**: "Pick A or B" with concrete A and B descriptions,
     not "decide what to do".
+  - **`Resolution candidates` is path-free**: hold the resolution
+    shapes to the tension surface rule reproduced under "Rules
+    being enforced" below. State the change at the concept level
+    (which concept's Definition / Boundaries / Invariants would
+    change). Code-citation evidence is fine in `## What is muddy`
+    and `## Evidence`; the resolution shapes must be path-free.
   - **No resolutions slipped in**: the extractor must not have
     picked a winning candidate or graded the options. If it did,
     that's an issue.
   - **No vague unease tensions**: each tension is something a
     reasonable engineer could resolve in a sitting if they decided
     to. "The codebase feels complex" is not a tension.
+
+  ### Rules being enforced
+
+  The two self-containment checks above hold against these. This
+  reviewer runs as its own dispatch and does not see the extractor
+  prompt, so the rules are reproduced here in full.
+
+  {{SELF-CONTAINMENT-RULE}}
+
+  {{TENSION-SURFACE-RULE}}
 
   ### Cross-check
 
@@ -935,6 +1042,16 @@ Agent (general-purpose):
   affected slugs.
   Do NOT add new concepts that weren't authorized.
 
+  ### Rules for the docs you touch
+
+  Concept bodies you edit or create, and any tension you add, must
+  follow these. This step runs as its own dispatch, so the rules
+  are reproduced here in full.
+
+  {{SELF-CONTAINMENT-RULE}}
+
+  {{TENSION-SURFACE-RULE}}
+
   ### Anti-padding
 
   - Stay in scope.
@@ -978,7 +1095,7 @@ Annotation rollout is incremental: any time an agent has to consult
 a concept to understand or modify a file, it leaves the annotation
 at the most-specific load-bearing site so the next agent doesn't
 have to re-do the lookup. This rule is documented in
-`.ok-planner/CLAUDE.md` (written by `ok-planner:init`) so it applies
+`.ok-planner/CLAUDE.md` (written by `ok-planner:affirm`) so it applies
 project-wide regardless of which skill is active. No bulk
 greenfield annotation pass is needed.
 

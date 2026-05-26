@@ -25,7 +25,7 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 
 ## Process
 
-1. **Initialize layout** -- invoke `ok-planner:init` so `.ok-planner/specs/` exists before any writing starts.
+1. **Affirm layout** -- invoke `ok-planner:affirm` so `.ok-planner/specs/` exists before any writing starts.
 2. **Establish the goal** -- if context from the conversation makes it clear what to brainstorm, proceed. Otherwise ask the user what they want to design. If invoked from `ok-planner:refine-design`, the goal has already been established in the conversation (a brief naming: the session's tension queue with picked resolution shapes, any tensions rejected during intake, affected concept files, code paths needing reconciliation, review-notes outcomes, and a proposed spec slug) — recognize that brief as the goal and proceed. Every item in the brief that touches the design docs must end up under `## Design changes` in the spec.
 3. **Explore project context** -- check files, docs, recent commits, and (if it exists) the design docs under `.ok-planner/design/` to understand "how the project is now"
 4. **Ask clarifying questions** -- one at a time, prefer multiple choice
@@ -177,7 +177,34 @@ enough that execute-plan can apply it mechanically. Example:
 If the spec produced no design-doc impacts (small specs often
 won't), don't add a `## Design changes` section.
 
+**Concept self-containment in spec-driven mutations.** When a
+`## Design changes` bullet mutates a concept's body — new or
+rewritten Definition / Purpose / Boundaries / Invariants — the
+new body must follow the concept self-containment rule from
+`ok-planner:discover-design`'s SKILL.md ("Concept
+self-containment rule"). TL;DR: concept body has no file paths,
+no `code:`/`pkg:` citations, no external-doc references
+(`docs/...`, READMEs, sibling-repo paths), no quoted code or
+lint-config allowlists, no "Owns / Does NOT own" sections that
+name code paths. Allowed citations are other concept slugs,
+annotation IDs, spec slugs in dated Notes entries, and dates.
+
+State the new section text directly in the bullet; do not phrase
+the mutation as "see `foo.go`" or "matches `docs/...`" or "the
+canonical impl lives at `pkg:...`". If a tension's resolution
+shape can't be stated as concept-doc + code-discipline changes
+without naming a path, the resolution isn't ready — sharpen it
+before writing the spec.
+
+The same rule applies to tension files the spec creates or
+modifies: `## Resolution candidates` sections in tensions are
+path-free; `## What is muddy` and `## Evidence` can cite code
+as evidence. See the "Tension surface rule" in the
+extractor prompt.
+
 ## Writing the spec and reviewing it
+
+**Before writing the spec, ground its citations against the actual source.** For every code surface the spec is going to name — files, functions, structs, tables, columns, proto messages, line numbers — read the underlying file first and copy the names verbatim. Do not write a citation from inference or from conversation context. Hallucinated citations cluster: a single wrong file path or function name in the first draft tends to spawn a wrong path or name in each round of fixes (cluster bias on the fix side, mirroring the reviewer's). Specs that touch many code surfaces and rely on guessed citations need many review rounds to converge; specs that ground every citation up-front converge in one or two. The cost of the up-front grounding pass is much smaller than the cost of the fix-review loop it prevents.
 
 Write the spec to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md` (user preferences override this path). Dispatch a spec reviewer subagent:
 
@@ -249,6 +276,22 @@ Agent (general-purpose):
   - A `## Design changes` section exists but is incomplete (e.g.,
     references a concept mutation without saying which file or
     what changes) — execute-plan needs precise instructions.
+  - A `## Design changes` bullet mutates concept body text but
+    the new text violates the concept self-containment rule
+    (see `ok-planner:discover-design`'s SKILL.md, "Concept
+    self-containment rule"): cites a file path, names an
+    external doc, quotes code or a lint-config allowlist, or
+    introduces an "Owns / Does NOT own" section that cites
+    paths. Flag the offending bullet and the offending
+    citation; the fix is to rewrite the new body as path-free
+    prose.
+  - A `## Design changes` bullet creates or modifies a tension
+    whose `## Resolution candidates` section cites a file path,
+    symbol, or external doc. Resolutions become spec
+    instructions and live forward in time — they must be
+    path-free (see the "Tension surface rule"). Code-citation
+    evidence is fine in `## What is muddy` / `## Evidence`,
+    not in `## Resolution candidates`.
 
   If `.ok-planner/design/concepts/` does not exist, skip this
   section.

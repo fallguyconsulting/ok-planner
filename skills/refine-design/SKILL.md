@@ -103,7 +103,7 @@ up context and invokes `ok-planner:brainstorm`.
 
 ## Process
 
-1. Run `ok-planner:init` so the layout exists.
+1. Run `ok-planner:affirm` so the layout exists.
 2. Verify `.ok-planner/design/concepts/` and
    `.ok-planner/design/tensions/` exist. If either is empty, tell the
    user to run `/discover-design` first and stop.
@@ -138,7 +138,14 @@ up context and invokes `ok-planner:brainstorm`.
    - Present resolution shapes — the extractor's candidates, or
      new ones if the user wants. Each shape should be stated as a
      concrete change to one or more concept docs AND the code
-     path(s) that need reconciling.
+     path(s) that need reconciling. State the concept-doc change
+     at the concept level — which Definition / Boundaries /
+     Invariants text would change, and what the new text says —
+     following the concept self-containment rule from
+     `ok-planner:discover-design`'s SKILL.md. The new body text
+     is path-free; the code-paths-needing-reconciling portion of
+     the brief is a separate item (the code work), not part of
+     the proposed concept body.
    - The user picks. Capture the verdict in the brief:
      - **pick shape X** — record the pick.
      - **reject the tension** — record that the tension should be

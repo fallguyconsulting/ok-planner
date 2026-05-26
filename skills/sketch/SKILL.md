@@ -38,7 +38,7 @@ sketch, the path is sketch → brainstorm → spec → plan.
 
 ## Process
 
-1. **Ensure layout exists.** Invoke `ok-planner:init` so
+1. **Affirm layout.** Invoke `ok-planner:affirm` so
    `.ok-planner/sketches/` exists.
 
 2. **Establish the topic.** If the user's `/sketch` invocation already

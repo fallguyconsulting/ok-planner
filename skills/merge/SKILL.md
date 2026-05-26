@@ -164,6 +164,12 @@ Agent (general-purpose):
   - Invariants claims a property the post-merge code no longer holds.
   - `@concept:` annotations point at sites that have moved or no
     longer enforce what the concept claims.
+  - **Citation-rot drift**: concept body cites a file path,
+    symbol, or external doc that the merge moved, renamed, or
+    removed. Per the concept self-containment rule (see
+    `ok-planner:discover-design`'s SKILL.md), concept body
+    should not contain such citations at all — the rot finding
+    is also a self-containment finding.
 
   For each drift finding, draft a proposed Notes append for the
   affected concept file:
@@ -178,6 +184,17 @@ Agent (general-purpose):
   the merge findings. Notes appends are the natural shape for
   drift findings; bigger rewrites need a `/refine-design` session
   to produce a proper spec.
+
+  **For citation-rot drift specifically:** propose REMOVING the
+  offending citation from the concept body, not repointing it
+  to the new path. Repointing perpetuates the drift problem —
+  the next refactor will rot it again. If the surface the
+  citation pointed at is genuinely load-bearing for the concept
+  (the concept can't explain itself without naming the thing),
+  that's information for the user to take through
+  `/refine-design`: either sharpen the concept's Boundaries to
+  state the load-bearing property at the concept level, or file
+  a tension. The proposed Notes append should say so.
 
   #### 3. Semantic conflicts
 

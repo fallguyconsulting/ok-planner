@@ -22,7 +22,7 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 
 | Skill | When to use |
 |-------|-------------|
-| `ok-planner:init` | **Internal.** Invoked by other ok-planner skills before they produce or move artifacts. Ensures `.ok-planner/{specs,plans,sketches,design,history/specs,history/plans}/` exists. Idempotent. Safe for the user to invoke directly via `/init`. Use `/init --refresh` to update an existing `.ok-planner/CLAUDE.md` to the current template (with diff + confirmation). |
+| `ok-planner:affirm` | Invoked by other ok-planner skills before they produce or move artifacts; also user-invokable as `/affirm`. Unified create-or-update: creates `.ok-planner/{specs,plans,sketches,design,history/specs,history/plans}/` if absent, and writes or overwrites `.ok-planner/CLAUDE.md` to match the current template (skill-owned boilerplate — drift is overwritten without prompting). Idempotent — a project already in compliance is a silent no-op. |
 | `ok-planner:discover-design` | User types `/discover-design`. Runs autonomously end-to-end via produce → review → fix loops. Two phases: (1) reads code + prose and writes as-is scaffolding to `.ok-planner/design/_discover/`; (2) extracts load-bearing concepts to `.ok-planner/design/concepts/`, a tensions catalog to `.ok-planner/design/tensions/`, and agent-confessed uncertainty to `.ok-planner/design/review-notes.md`. Outputs are as-is, not prescriptive. Aborts rather than overwrite human-edited `concepts/` or `tensions/`. |
 | `ok-planner:refine-design` | User types `/refine-design`. Specialization of `brainstorm` for resolving design tensions. Read-only intake — user picks tensions and resolution shapes; decisions go into a brief — then hands off to `brainstorm` to produce a spec with a `## Design changes` section capturing the concept-doc mutations and tension moves, alongside the code reconciliation. Flows through `write-plan` → `execute-plan`. |
 | `ok-planner:merge` | User types `/merge`. Surfaces design-doc findings against a recent merge or rebase (mechanical issues, drift, semantic conflicts) and runs a code review of the merge diff. Read-only against `.ok-planner/design/` — findings are written to a transient report and the user takes them through `/brainstorm` or `/refine-design` to produce a reconciliation spec. |
@@ -30,6 +30,7 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 | `ok-planner:brainstorm` | User types `/brainstorm` |
 | `ok-planner:write-plan` | You have an approved spec and need an implementation plan |
 | `ok-planner:execute-plan` | You have a plan and want a single subagent to drive it to completion, then review |
+| `ok-planner:execute-plan-in-worktree` | User types `/execute-plan-in-worktree`. Wraps `execute-plan` with isolation setup: creates a git worktree on a new branch, copies ephemeral local config (`.env*`) and the spec+plan into it, provisions fresh host ports if the project parameterizes them (docker-compose or `.env`), then `cd`s into the worktree and hands off to `execute-plan`. Use when the host project's dev stack is running and you want plan execution on a side branch without port/state collisions. |
 | `ok-planner:review-work` | Review all uncommitted changes |
 | `ok-planner:review-plan` | Review implementation against a spec/plan (interactive: lists plans) |
 | `ok-planner:review-commits` | Review a commit range (interactive: shows history) |
@@ -42,7 +43,7 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 ## Artifact layout
 
 All ok-planner skills read and write under `.ok-planner/` at the project
-root (created on demand by `ok-planner:init`):
+root (created on demand by `ok-planner:affirm`):
 
 - `.ok-planner/specs/` — active specs from `/brainstorm` (including specs produced via `/refine-design`'s handoff to brainstorm)
 - `.ok-planner/plans/` — active plans from `/write-plan`, plus the

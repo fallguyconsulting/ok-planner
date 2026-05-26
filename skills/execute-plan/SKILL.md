@@ -21,7 +21,7 @@ You are the taskmaster. You do not implement. You dispatch each pass, verify the
 
    If the plan has no passes (older flat-task plans), treat the entire task list as a single pass with `End state: working` and the plan's overall verification (if any). Flag this to the user as a one-line note before dispatching: the plan predates the pass model and the executor is treating it as a single pass.
 
-2. **Initialize the layout.** Invoke `ok-planner:init` to ensure `.ok-planner/plans/` and `.ok-planner/history/` exist.
+2. **Affirm the layout.** Invoke `ok-planner:affirm` to ensure `.ok-planner/plans/` and `.ok-planner/history/` exist.
 
 3. **Dispatch passes in order.** For each pass in plan order:
 
@@ -107,6 +107,12 @@ Agent (general-purpose):
 
   [If `broken-intentional`: "This pass deliberately leaves the codebase non-working. Pass [N] is responsible for restoring it. Do NOT run the plan's overall build/test suite expecting it to pass — it won't, and that's intended. Do run any per-task verifications the pass specifies (e.g., `git status` confirming a file was deleted). Report DONE when every task in this pass is complete, regardless of whether the broader tree compiles."]
 
+  ## Design-doc mutations (if any)
+
+  If a task in this pass mutates a file under `.ok-planner/design/concepts/` or `.ok-planner/design/tensions/`, follow the concept self-containment rule from `ok-planner:discover-design`'s SKILL.md. In short: concept body has no file paths, no `code:`/`pkg:` citations, no external-doc references (`docs/...`, READMEs, sibling-repo paths), no quoted code or lint-config allowlists, no "Owns / Does NOT own" sections that name code paths. Allowed citations: other concept slugs, annotation IDs (`@blessed-invariant: N`), spec slugs in dated Notes entries, and dates. Tension `## Resolution candidates` sections are also path-free; `## What is muddy` / `## Evidence` can cite code as evidence.
+
+  The spec's `## Design changes` section is the authoritative description of each mutation. If a bullet there leaks a path into the new concept body, apply the rule when implementing — rewrite the new text to be path-free. That counts as a divergence; the audit will surface it for the user.
+
   ## Trust and judgment
 
   The user has already weighed in by writing this plan. Every action it describes is authorized; you don't need to second-guess scope or ask for confirmation. They are not waiting for questions — they've handed off, and your job is to deliver this pass.
@@ -162,7 +168,9 @@ Agent (general-purpose):
   - Implement what each task is asking for. Deviations from the literal wording are fine when spec intent is clearer — the auditor will catch them.
   - Run the verifications each task specifies. For `working` passes, also run the pass-level Verification command before reporting DONE.
   - Stay within this pass. Don't do work belonging to other passes.
-  - Do NOT commit. The user commits when they are ready.
+  - **Checkpoint after every task.** When a task is complete, run `git add -A` to stage your progress into the index. This is a checkpoint, not a commit — it needs no message, costs nothing, and moves the work into the index where a stray working-tree revert can't reach it. The index is the only safety net during a run (nobody commits between passes), so checkpoint diligently — every prior task and every prior pass left uncommitted work in this tree.
+  - **Never revert, reset, or clean the tree.** Do not run `git checkout -- <path>` / `git checkout .`, `git restore`, `git reset` (any mode), `git stash`, or `git clean` — not even on a single file. A file you think you "only" touched just now may carry edits from earlier tasks or passes, and a revert takes those with it; there is no commit to recover them from. When an edit goes wrong, **fix it forward** — edit the file again until it says what you want. The reflexive `git checkout -- .` to "start over" is the exact footgun this rule exists to prevent: it erases everything not yet committed.
+  - Do NOT commit. Staging (`git add`) is your checkpoint; committing is the user's call, made after the run.
 
 ## Re-dispatch directive template (verification failed on a `working` pass)
 
@@ -257,4 +265,5 @@ After the review reports clean, walk the divergence entries with the user using 
 - Review happens once, after all passes are DONE — not between passes.
 - Per-pass verification (between passes) is not "review" — it's a fast machine check that exits 0 or doesn't. If you need human judgment about whether a pass succeeded, the verification command isn't tight enough; that's a plan defect, not a step to insert here.
 - Do not commit at any point. The user commits when ready.
-- Never start work on `main`/`master` without explicit user consent.
+- Never revert, reset, or clean the working tree — this binds the orchestrator as well as every dispatched agent. No `git checkout -- <path>`, `git restore`, `git reset`, `git stash`, or `git clean`, even on a single file. Uncommitted work from earlier passes lives all over the tree with no commit to recover it; a revert destroys it silently. Implementers checkpoint each task with `git add -A` (staging, not committing) so the index always holds known-good progress; recovery from any botched edit is fix-forward, never undo. If you need to roll a pass back to a clean baseline, that is a plan/escalation matter for the user — not a `git reset` you run yourself.
+- Work proceeds on whatever branch is currently checked out, including `main`/`master`. Do not create branches, switch branches, or stop to ask which branch to use — branch/worktree setup is the caller's concern (see `execute-plan-in-worktree` for the isolated-branch variant).
