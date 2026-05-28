@@ -118,12 +118,14 @@ Map out files before defining tasks. Design units with clear boundaries. Each fi
 
 **Why passes:** A flat plan of 50 tasks either exhausts one subagent's context or forces the executor to chunk on the fly (which it does poorly). A flat plan of 4 tasks doesn't need chunking — it's one pass. Passes are *not phases*: there are no user checkpoints between them, no partial deliveries, no "phase 1 of N" framing visible to the user. They all run inside one `execute-plan` invocation. The user-facing unit is still "the plan."
 
+**A plan has no fixed scope. A large scope means more passes — never more plans.** The spec sets the scope and the plan covers it in full (see "The plan captures the spec, in full"); a plan can be a few tasks or it can run for hours. The right response to a big spec is *more passes*, not splitting it into several plans or pushing the spec back to be split. This is safe because `execute-plan` dispatches one pass at a time, each to a fresh subagent with its own full context window — the orchestrator never holds the whole plan's work in one context, so it can drive a dozen, two dozen, or more passes without context exhaustion. Context is not what bounds plan size. So do not react to a large spec with "this is too much for one plan"; a high pass count is exactly what a large plan looks like.
+
 **Pass count guidance:**
 
 - Most plans are 1–3 passes.
-- Very large plans may reach ~10–12 passes.
-- A plan that wants >12 passes is usually trying to cover more than one cohesive change — surface that to the user and ask whether the spec should split.
-- A plan with 1 pass and 30+ tasks is asking one subagent to do too much — split it.
+- Large plans run to many more — a dozen, two dozen, or beyond. There is no upper cap; pass count scales with the spec's scope, and a high count is never a signal to split the spec or write multiple plans.
+- Don't pad the count either: size passes by coherent units of work (see "Pass sizing"), never toward a target number, and don't fragment work into trivial passes just because the per-subagent context budget is generous.
+- A plan with 1 pass and 30+ tasks is asking one subagent to do too much — split *that pass* into more passes (not the plan into more plans).
 
 **Pass sizing:** A pass should fit comfortably in one subagent's working context — typically a handful of tasks against a focused area of the codebase. If a pass enumerates 10+ tasks or scatters across unrelated areas of the tree, consider splitting it. If two adjacent passes touch the same handful of files in continuous order with no meaningful boundary between them, consider merging them.
 
@@ -279,9 +281,14 @@ Agent (general-purpose):
   - Every task lives under a numbered pass (no orphan tasks
     outside any pass).
   - Pass count is appropriate to the plan: most plans are 1–3
-    passes; very large plans up to ~12. Flag >12 passes as a sign
-    the plan should split. Flag a single pass with 30+ tasks
-    (one subagent shouldn't be asked to do that much).
+    passes; large plans run to many more (a dozen, two dozen, or
+    beyond). There is NO upper cap on pass count — it scales with
+    the spec's scope, and a high count is never grounds to flag the
+    plan as needing to split into multiple plans or to push the
+    spec back to be narrowed. Do flag the opposite problems: a
+    single pass with 30+ tasks (one subagent shouldn't be asked to
+    do that much — it wants splitting into more passes), and passes
+    fragmented so trivially that the count is padded.
   - Each pass header declares **Goal**, **Scope** (task
     range), **End state**, and **Verification**.
   - End state is `working` or `broken-intentional`. Every

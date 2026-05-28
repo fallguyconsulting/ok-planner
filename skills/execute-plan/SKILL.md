@@ -9,7 +9,7 @@ Dispatch one fresh subagent per pass. Between passes, gate on the pass's declare
 
 The plan is a record of the user's intent; the implementer's job is to deliver the spec's business value pass by pass. The implementer is given two — and only two — permitted reasons to stop short within a pass. Reports that don't qualify as DONE on the dispatched pass or as a genuinely-valid BLOCKED are re-dispatched with a sharper directive; escalation to the user is reserved for real BLOCKED conditions and for the case where re-dispatch has run its cap on the current pass.
 
-The orchestrator's job is to drive the whole plan to completion one pass at a time. Most large plans converge in 5–12 passes, so 5–12 subagent dispatches. Review happens once at the end. Reworks happen when the user asks for them — not because the agent decided to defer mid-plan.
+The orchestrator's job is to drive the whole plan to completion one pass at a time, however many passes that takes. A small plan is a few passes; a large one can be a dozen, two dozen, or more — that many subagent dispatches. There is no upper limit: each pass runs in its own fresh subagent, so the orchestrator never accumulates the whole plan's work in one context and can keep dispatching passes for as long as the plan runs. Review happens once at the end. Reworks happen when the user asks for them — not because the agent decided to defer mid-plan.
 
 ## Orchestrator's role
 
