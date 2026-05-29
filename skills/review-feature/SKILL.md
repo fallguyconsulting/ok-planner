@@ -53,6 +53,7 @@ Agent (general-purpose):
 
   - **Completeness:** Does this feature do what it should? Are there obvious gaps?
   - **Correctness:** Bugs, edge cases, race conditions, error handling
+  - **Load-bearing properties:** Name the properties the feature is meant to guarantee — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical," "this path must not block" — and check each holds, not just on the happy path. The dangerous failure is a feature that works under light load but silently trades a property away for a local optimization (e.g. an async-and-droppable write where completeness was assumed). A property the feature is meant to guarantee but no longer does is a finding even when nothing looks broken.
   - **Coherence:** Does the implementation make sense as a whole? Are the pieces well-integrated?
   - **Overengineering:** Is anything more complex than it needs to be?
   - **Underengineering:** Are there shortcuts that will cause problems?

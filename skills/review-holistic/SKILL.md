@@ -82,6 +82,13 @@ Agent (general-purpose):
   - Helpers/services constructed but never invoked at a real call site
   - "Wired up" surface that doesn't reach a runtime call site
   - Doc comments that describe a different behavior than the code
+  - Load-bearing properties silently degraded: a property the code is
+    meant to guarantee (durability, completeness, atomicity, ordering,
+    idempotency, no-data-loss, or a record a concept/invariant treats as
+    canonical) that the implementation only upholds on the happy path —
+    e.g. a write made async-and-droppable to save latency, downgrading a
+    record documented as complete. These hide precisely because the code
+    "works" under light load; a convergence pass is where they surface.
 
   #### 2. Code that doesn't earn its keep
 

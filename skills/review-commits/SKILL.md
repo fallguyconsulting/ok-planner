@@ -40,6 +40,7 @@ Agent (general-purpose):
   - Correctness: bugs, edge cases, off-by-one errors
   - Safety: data loss, security issues, resource leaks, irreversible operations
   - State integrity: can we get stuck in a state? Double-execute? Skip steps?
+  - Load-bearing properties upheld: name the properties the code is meant to guarantee — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical," "this path must not block" — and check each survives, not just on the happy path. The dangerous regression is code that works under light load but silently trades a property away for a local optimization (e.g. a write made async-and-droppable to save latency, downgrading a record that's supposed to be complete). A property the code is meant to guarantee but no longer does is an issue even when nothing looks broken — review the property, not just the diff.
   - Test coverage: do tests verify real behavior? Any gaps?
   - Dead code, unused imports, stale comments
   - Pre-existing issues: if you find bugs, stale references, or inconsistencies in any file you read — even if they predate the commits being reviewed — report them. If an issue points to problems in files outside the diff, follow the trail and report those too.

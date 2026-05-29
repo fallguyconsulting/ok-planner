@@ -39,6 +39,7 @@ Agent (general-purpose):
   Then review for:
   - Correctness: bugs, edge cases, off-by-one errors
   - Safety: data loss, security issues, resource leaks
+  - Load-bearing properties upheld: identify the contract each file is meant to honor — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical," "this path must not block" — and check it survives, not just on the happy path. The dangerous failure is code that works under light load but silently trades a property away for a local optimization (an async-and-droppable write where completeness was assumed, a sampled scan where the contract was exhaustive). A property the code is meant to guarantee but no longer does is an issue even when nothing looks broken.
   - Clarity: could someone understand this without reading its internals?
   - Interface quality: are the boundaries clean? Can internals change without breaking consumers?
   - Dead code, unused exports, stale comments

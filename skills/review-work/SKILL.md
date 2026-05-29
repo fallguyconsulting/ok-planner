@@ -56,6 +56,7 @@ Agent (general-purpose):
   - Correctness: bugs, edge cases, off-by-one errors
   - Safety: data loss, security issues, resource leaks, irreversible operations
   - State integrity: can we get stuck in a state? Double-execute? Skip steps?
+  - Load-bearing properties upheld: name the properties the spec/plan depend on — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical/authoritative," and the like — and verify the code actually guarantees each one. The dangerous failure is code that works on the happy path but silently trades such a property away for a local optimization (e.g. an audit write made asynchronous-and-droppable to protect request latency, quietly downgrading a record the spec called authoritative). For each property ask: does the implementation still guarantee it, or only under light load / the happy path? If the spec relied on a property the code no longer guarantees, that is an issue even when nothing appears "broken" — review the property, not just the line-by-line diff.
   - Test coverage: do tests verify real behavior? Any gaps?
   - Dead code, unused imports, stale comments
   - Anything that deviates from requirements
@@ -91,7 +92,13 @@ Agent (general-purpose):
   from the code. A divergence that produces working, safe code is
   fine. A divergence that introduces a bug, regression, or invariant
   violation is an issue — flag it with file:line as you would any
-  other.
+  other. So is a divergence that silently trades away a property the
+  spec or plan relied on (durability, completeness, atomicity,
+  ordering, no-data-loss) — even when the code "works": flag it and
+  name the property that was spent. And note that the auditor records
+  consequential choices the plan left *unspecified* too; an
+  unsettled-tradeoff divergence is one of those, so don't dismiss it
+  just because the plan never named the property at stake.
 
   ### Output Format
 

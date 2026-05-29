@@ -49,6 +49,7 @@ Also safe for the user to invoke directly via `/affirm`. There is one command; i
   history/
     specs/           # archived specs (after plan execution completes) — workflow scratch
     plans/           # archived plans + divergence reports (after plan execution completes) — workflow scratch
+    sketches/        # archived sketches (after /brainstorm produces a spec from them) — workflow scratch
 ```
 
 Most subdirectories are workflow scratch — point-in-time records of how something was conceived. The `design/` subdirectory is the exception: it's the durable design docs — a concept catalog plus tensions, a source of truth with the same weight as code. Mutated only through plan execution. The embedded `CLAUDE.md` explains this distinction so future agents treat the directories correctly.
@@ -64,6 +65,7 @@ Most subdirectories are workflow scratch — point-in-time records of how someth
    - `.ok-planner/design/`
    - `.ok-planner/history/specs/`
    - `.ok-planner/history/plans/`
+   - `.ok-planner/history/sketches/`
 
    Use `mkdir -p` so existing directories are left untouched.
 
@@ -335,6 +337,9 @@ Most subdirectories are workflow scratch — point-in-time records of how someth
    - `history/specs/` and `history/plans/` — specs and plans
      archived here automatically when an execute-* skill finishes
      a plan (workflow scratch)
+   - `history/sketches/` — sketches archived here automatically by
+     `/brainstorm` when it produces a spec from them (workflow
+     scratch)
    ````
 
 5. **Report back** to the calling skill (or user, if invoked directly) with one short line stating what was created vs. already present vs. updated. Do not produce a long explanation.

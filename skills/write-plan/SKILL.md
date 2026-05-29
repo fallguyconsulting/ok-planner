@@ -91,6 +91,45 @@ spec is genuinely unworkable (contradictory, missing required
 context, references things that do not exist), surface that to the
 user before writing the plan. Do not silently narrow the scope.
 
+## Make load-bearing properties explicit and checkable
+
+A spec usually depends on properties that are easy to state and
+easy to lose: durability ("the audit record is canonical"),
+completeness ("every event is recorded"), atomicity ("the write
+and its index update commit together"), ordering, idempotency,
+no-data-loss, "this path must never block the request." These are
+the properties that get silently traded away during
+implementation — the implementer reaches for an expedient shape
+(async, best-effort, sampled, partial) and the plan never told
+them the property was load-bearing.
+
+The plan is where a decided property stops being silent. For each
+load-bearing property the spec relies on:
+
+- **State it in the implementing task** — name the property and
+  the cheaper shape that must NOT be used ("the audit insert is
+  synchronous and shares the request's transaction; do not make it
+  async or droppable"). The implementer obeys the plan literally,
+  so the constraint has to be on the page.
+- **Give it a verification command that actually exercises it**,
+  not a happy-path check. A property with no real verification can
+  regress silently between passes and slip past review. If the
+  property is "no row is dropped under load," the verification
+  drives load and asserts completeness — not "write one row, read
+  it back." If a property genuinely can't be checked by a command,
+  state that in the task and add a line to `## Manual checks after
+  completion`.
+
+Make these calls **autonomously**, defaulting to the rigorous side
+whenever the spec leaves a how-question open — correctness over
+speed, durability over latency, completeness over convenience —
+exactly as the implementer is told to. Do not stop to ask;
+write-plan runs to completion uninterrupted. If you settled a
+tradeoff the spec didn't, or promoted an implicit property to an
+explicit constraint, note it for the end-of-run handoff. The model
+is: make the call, let the reviewer check it, surface it to the
+user at the end — not pause mid-plan to ask.
+
 ## Autonomous Execution Required
 
 Plans are executed by `ok-planner:execute-plan`, which runs unsupervised. Every step must be something an agent can perform on its own — no human in the loop until the plan is fully implemented and reviewed.
@@ -261,6 +300,17 @@ Agent (general-purpose):
     moves to `_resolved/` or `_rejected/`, new concept or tension
     files). Design-doc edits ride alongside code edits in the
     same plan; missing tasks here are blocking.
+  - Load-bearing properties are explicit and checked. Identify the
+    properties the spec relies on (durability, completeness,
+    atomicity, ordering, idempotency, no-data-loss,
+    canonical-record, "must not block the request," and the like).
+    For each, verify the plan (a) states the constraint in the
+    implementing task — naming the cheaper shape that must not be
+    used — and (b) gives it a verification command that actually
+    exercises the property, not just a happy-path check. A
+    load-bearing property with no real verification is a blocking
+    gap: it can regress silently during execution and slip past
+    review.
   - Task decomposition (one discrete action plus verification per
     step)
   - Buildability (the implementer can act on each task from the
@@ -333,5 +383,6 @@ Tell the user:
 
 - The plan path
 - That they should start a **fresh Claude Code session** (clear context) and run `/execute-plan` against the plan there, so the implementer works from a clean context with the plan as its single source of truth
+- Any autonomous calls worth knowing about: load-bearing properties the plan made explicit and checkable, and any tradeoff the spec left open that the plan defaulted to the rigorous side of. Keep this to a short list — these are calls already made, surfaced for awareness, not questions to answer. If there were none, omit this entirely.
 
 Then end the turn. Plan execution is the user's call, in a session of their choosing.

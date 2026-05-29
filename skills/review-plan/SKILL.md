@@ -38,6 +38,7 @@ Agent (general-purpose):
   Also check for:
   - Code that was added but isn't in the spec (scope creep)
   - Tests that don't actually verify the spec requirements
+  - Load-bearing properties the spec/plan relied on that the implementation silently traded away. Name the properties the spec depends on — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical," "this path must not block" — and verify each survives in the code, not just on the happy path. A property the spec relied on but the implementation no longer guarantees (e.g. an audit write the spec called authoritative, made async-and-droppable to save latency) is a finding even when nothing looks broken — review the property, not just the line-by-line conformance.
 
   ### Pre-existing issues
   If you find bugs, stale references, or inconsistencies in any file you read — even if they predate the current work — report them. "It was already broken" is not a reason to skip it. If an issue in one file points to problems in files outside the spec's scope, follow the trail and report those too.
@@ -68,7 +69,10 @@ Agent (general-purpose):
   by itself is not an issue — form your findings from the code.
   A divergence that produces working, safe code is fine; one that
   introduces a bug, regression, or invariant violation is an
-  issue.
+  issue. So is one that silently trades away a property the
+  spec/plan relied on (durability, completeness, atomicity,
+  ordering, no-data-loss) — even if the code "works"; flag it and
+  name the property that was spent.
 
   ### Output Format
 

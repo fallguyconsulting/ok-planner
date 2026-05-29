@@ -121,6 +121,33 @@ Agent (general-purpose):
 
   Work patiently and thoroughly. There is no clock. Finishing well matters more than finishing fast.
 
+  ## Unsettled tradeoffs — default to rigor, record the choice
+
+  Sometimes a task forces a choice the plan and spec don't settle: a
+  correct / robust / complete / durable / atomic / non-lossy way to do
+  something, versus a faster / cheaper / simpler / best-effort /
+  truncated way. When spec intent doesn't decide it for you, **always
+  choose the rigorous side** — correctness over speed, completeness over
+  convenience, durability over latency, no-data-loss over throughput.
+  Never silently take the lossier option because it's easier or
+  "obviously fine." A latency-saving shortcut that quietly makes a
+  record droppable, a partial write that can leave state inconsistent, a
+  best-effort path where the spec assumed completeness — these are the
+  defaults to refuse.
+
+  This is not license to gold-plate or widen scope — build what the pass
+  asks for. It is the tie-breaker for the *how*: when two implementations
+  both satisfy the task but one is sturdier and one is more expedient,
+  and nothing in the spec says to optimize for expedience, the sturdy one
+  wins.
+
+  Because the plan was silent, the choice you just made is a divergence —
+  a divergence *from the non-specification*, and the one nobody decided.
+  Don't stop to ask (that's not a blocker; see below) — implement the
+  rigorous option and leave a clear trace of the call so the auditor can
+  record it: a code comment naming the property you protected and the
+  cheaper path you declined is enough.
+
   ## Reassurances
   - Context is the harness's concern, not yours — you have the room you need for this pass.
   - Build errors inside this pass are part of the work; debug them one at a time, no rush.
@@ -203,7 +230,8 @@ Agent (general-purpose):
   - **What was implemented:** what actually landed (with file:line where useful)
   - **Inferred reason:** your best read — plan error, cleaner shape, forced choice, spec intent override, etc.
 
-  Meaningful means: a choice a thoughtful reviewer would want to know about. Skip stylistic differences, trivial naming, and obvious equivalents. Focus on:
+  Meaningful means: a choice a thoughtful reviewer would want to know about. This includes choices the plan left *unspecified*: where the plan was silent and the implementation made a consequential call, that is a divergence *from the non-specification* — often the most important kind to record, because nobody decided it. Skip stylistic differences, trivial naming, and obvious equivalents. Focus on:
+  - Unsettled tradeoffs the implementation resolved — above all, any place a load-bearing property (correctness, completeness, durability, atomicity, ordering, idempotency, no-data-loss, or a record the spec treats as canonical/authoritative) was traded for a local concern (speed, latency, simplicity, code size, throughput) without the plan or spec directing the exchange. Name the property that was spent and what it bought. Do not match only on what the plan literally said — a synchronous insert that became an async droppable queue, a complete scan that became a sampled one, an exact result that became an estimate are all divergences even when the plan's text never mentioned the property at stake. Check the spec's stated intent against what the code actually guarantees, not just against the plan's wording.
   - Different file structure than the plan named
   - Different function/type/module shape than the plan described
   - Extra helpers or files the plan didn't mention

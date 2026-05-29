@@ -26,7 +26,7 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 ## Process
 
 1. **Affirm layout** -- invoke `ok-planner:affirm` so `.ok-planner/specs/` exists before any writing starts.
-2. **Establish the goal** -- if context from the conversation makes it clear what to brainstorm, proceed. Otherwise ask the user what they want to design. If invoked from `ok-planner:refine-design`, the goal has already been established in the conversation (a brief naming: the session's tension queue with picked resolution shapes, any tensions rejected during intake, affected concept files, code paths needing reconciliation, review-notes outcomes, and a proposed spec slug) — recognize that brief as the goal and proceed. Every item in the brief that touches the design docs must end up under `## Design changes` in the spec.
+2. **Establish the goal** -- if context from the conversation makes it clear what to brainstorm, proceed. Otherwise ask the user what they want to design. If invoked from `ok-planner:refine-design`, the goal has already been established in the conversation (a brief naming: the session's tension queue with picked resolution shapes, any tensions rejected during intake, affected concept files, code paths needing reconciliation, review-notes outcomes, and a proposed spec slug) — recognize that brief as the goal and proceed. Every item in the brief that touches the design docs must end up under `## Design changes` in the spec. If the brainstorm is initiated from one or more existing sketches under `.ok-planner/sketches/` — the user names one, or adopts one surfaced during context exploration — note them as the brainstorm's **source sketches**: the spec supersedes them, and they get archived once it is approved (see "Source sketches").
 3. **Explore project context** -- check files, docs, recent commits, and (if it exists) the design docs under `.ok-planner/design/` to understand "how the project is now"
 4. **Ask clarifying questions** -- one at a time, prefer multiple choice
 5. **Propose 2-3 approaches** -- with trade-offs and your recommendation
@@ -34,7 +34,8 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 7. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`. If the work touches the design docs, include a `## Design changes` section enumerating the mutations execute-plan will apply.
 8. **Spec review** -- dispatch reviewer subagent, fix issues, re-review until clean
 9. **User reviews spec** -- ask user to review before proceeding
-10. **Transition** -- invoke ok-planner:write-plan
+10. **Archive source sketches** -- if the brainstorm had source sketches: capture any deferred content in a new sketch, then move each source sketch to `.ok-planner/history/sketches/` (see "Source sketches"). Skip if there were none.
+11. **Transition** -- invoke ok-planner:write-plan
 
 ## What a spec is
 
@@ -64,6 +65,40 @@ user owns that.
 - Ask after each section whether it looks right
 - Cover: architecture, components, data flow, error handling, testing
 - YAGNI ruthlessly
+
+## Surface every tradeoff — never resolve one silently
+
+Many design decisions trade one desirable property against
+another: correctness vs. speed, completeness vs. latency,
+durability vs. cost, robustness vs. simplicity, atomicity vs.
+throughput. When a decision has this shape, **name the tradeoff
+and let the user decide it.** Do not pick a side on their behalf,
+and do not let a default feel so obvious that you skip surfacing
+it — "obviously we'd make this async so it doesn't add latency" is
+exactly the call that silently spends a load-bearing property (a
+complete, durable record) to buy a local one (request latency).
+
+The failure mode this guards against is not "the agent chose
+wrong." It is "the agent traded away a load-bearing property to
+optimize a local concern, never recognized it as a tradeoff, and
+so never surfaced it." The standard is: default to rigor, and
+surface anything that strays from it.
+
+In practice:
+- When a choice pits two good properties against each other, stop
+  and put both sides to the user — in prose, with your
+  recommendation — one question at a time, like any other
+  clarifying question.
+- A resolved tradeoff is a design decision: record it in the spec
+  (and under `## Design changes` if it changes a concept's
+  invariants or boundaries).
+- A tradeoff the user chooses to leave open is a tension: capture
+  it as a `## Design changes` tension entry (see "Tension
+  impacts") — not a silent default.
+- The dangerous tradeoff is the one you don't see. When a choice
+  protects a local metric (latency, code size, throughput), ask
+  what global property it might be spending — completeness,
+  durability, ordering, atomicity — and surface the exchange.
 
 ## Design docs awareness (read-only)
 
@@ -316,6 +351,69 @@ Agent (general-purpose):
 ```
 
 Fix issues, re-review until clean. Each re-review runs the full grounding pass — do not assume the previous round was exhaustive. Cluster bias means missed grounding issues hide behind the ones the previous reviewer found. Then ask user to review the written spec.
+
+## Source sketches
+
+A brainstorm is often initiated from an existing sketch under
+`.ok-planner/sketches/` — the user points at one and says "design
+this," or one surfaces during context exploration (step 3) and the
+user adopts it as the thing to brainstorm. There can be more than
+one. Those are the brainstorm's **source sketches**: the spec it
+produces supersedes them.
+
+A sketch read only as adjacent background — context the brainstorm
+does not consume — is **not** a source sketch and stays where it
+is. The test: a sketch is a source sketch only if this brainstorm
+dispositions its content (below). When it's unclear whether a
+sketch the user mentioned is a source or just background, ask.
+
+There is no other mechanism that moves sketches out of
+`.ok-planner/sketches/`. Brainstorm is where a sketch is consumed
+into a spec, so brainstorm is where its source sketches are
+archived.
+
+### Dispositioning sketch content
+
+By the time the spec is approved, every piece of a source sketch
+has landed in exactly one of three places:
+
+- **In scope** — captured in the spec. The normal case.
+- **Declined or reframed** — dropped. The user decided not to do
+  it, or the brainstorm folded it into something else already in
+  the spec. Nothing carries forward.
+- **Deferred** — the user explicitly chose to do it later: not
+  declined, not reframed, *deferred*. Deferred work must not
+  vanish when the source sketch is archived, so it is captured in
+  a new sketch (below).
+
+Defer-vs-decline is the user's call, made during the dialogue — do
+not unilaterally defer. When sketch content falls out of the
+brainstorm's scope, surface it and let the user say decline /
+reframe / defer.
+
+### Archiving (after the spec is approved)
+
+Once the user has approved the spec (step 9), before transitioning
+to write-plan:
+
+1. **Capture deferred work.** If any source-sketch content was
+   deferred, write a new sketch to
+   `.ok-planner/sketches/YYYY-MM-DD-<topic>-sketch.md` capturing
+   the remaining work, using the sketch template from
+   `ok-planner:sketch`'s SKILL.md. Give it a topic slug that
+   reflects the deferred work, not the original sketch. (Split
+   into more than one sketch only if the deferred work spans
+   clearly separate topics.)
+2. **Archive the originals.** Move each source sketch to
+   `.ok-planner/history/sketches/`, preserving the filename
+   (`git mv` if tracked, else `mv`).
+3. **Report** what was archived and the path of any deferred-work
+   sketch you wrote.
+
+Do not ask permission to archive: it is non-destructive (the
+sketch stays readable under `history/`) and is the documented
+completion behavior, the same way `execute-plan` archives a plan
+when it finishes. Just do it and report.
 
 ## Transition
 

@@ -22,7 +22,7 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 
 | Skill | When to use |
 |-------|-------------|
-| `ok-planner:affirm` | Invoked by other ok-planner skills before they produce or move artifacts; also user-invokable as `/affirm`. Unified create-or-update: creates `.ok-planner/{specs,plans,sketches,design,history/specs,history/plans}/` if absent, and writes or overwrites `.ok-planner/CLAUDE.md` to match the current template (skill-owned boilerplate — drift is overwritten without prompting). Idempotent — a project already in compliance is a silent no-op. |
+| `ok-planner:affirm` | Invoked by other ok-planner skills before they produce or move artifacts; also user-invokable as `/affirm`. Unified create-or-update: creates `.ok-planner/{specs,plans,sketches,design,history/specs,history/plans,history/sketches}/` if absent, and writes or overwrites `.ok-planner/CLAUDE.md` to match the current template (skill-owned boilerplate — drift is overwritten without prompting). Idempotent — a project already in compliance is a silent no-op. |
 | `ok-planner:discover-design` | User types `/discover-design`. Runs autonomously end-to-end via produce → review → fix loops. Two phases: (1) reads code + prose and writes as-is scaffolding to `.ok-planner/design/_discover/`; (2) extracts load-bearing concepts to `.ok-planner/design/concepts/`, a tensions catalog to `.ok-planner/design/tensions/`, and agent-confessed uncertainty to `.ok-planner/design/review-notes.md`. Outputs are as-is, not prescriptive. Aborts rather than overwrite human-edited `concepts/` or `tensions/`. |
 | `ok-planner:refine-design` | User types `/refine-design`. Specialization of `brainstorm` for resolving design tensions. Read-only intake — user picks tensions and resolution shapes; decisions go into a brief — then hands off to `brainstorm` to produce a spec with a `## Design changes` section capturing the concept-doc mutations and tension moves, alongside the code reconciliation. Flows through `write-plan` → `execute-plan`. |
 | `ok-planner:merge` | User types `/merge`. Surfaces design-doc findings against a recent merge or rebase (mechanical issues, drift, semantic conflicts) and runs a code review of the merge diff. Read-only against `.ok-planner/design/` — findings are written to a transient report and the user takes them through `/brainstorm` or `/refine-design` to produce a reconciliation spec. |
@@ -59,6 +59,9 @@ root (created on demand by `ok-planner:affirm`):
 - `.ok-planner/history/specs/` and `.ok-planner/history/plans/` —
   archived specs and plans moved here automatically when an execute-*
   skill finishes a plan
+- `.ok-planner/history/sketches/` — sketches moved here automatically
+  by `/brainstorm` when it produces a spec from one or more source
+  sketches
 
 Specs / plans / sketches / history are workflow scratch, not project
 documentation; do not propose updating them to reflect codebase
