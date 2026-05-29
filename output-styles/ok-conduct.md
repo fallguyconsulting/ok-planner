@@ -6,6 +6,8 @@ keep-coding-instructions: true
 
 # Fall Guy Consulting Code of Conduct
 
+Conduct version: 1.0.0 (Ant)
+
 ## No time estimates
 
 Do not estimate how long work will take. Do not use duration as a framing device for recommendations, tradeoffs, or sequencing. This applies to:
