@@ -39,7 +39,7 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 | `ok-planner:review-holistic` | Codebase-wide convergence review aimed at parsimony — finds real issues plus extraneous accretion (code/tests/features/docs that don't earn their keep). Use after large deliveries or when other review cycles have plateaued. Run until convergence. |
 | `ok-planner:review-cleanup` | **Internal.** Invoked by review skills after issues are found. Drives the fix-review loop via subagent. Do NOT invoke directly — the review skills call it. |
 | `ok-planner:verify` | You're about to claim work is complete |
-| `ok-planner:ok-version` | User types `/ok-version`. Read-only. Reports the installed plugin version and the installed `ok-conduct` conduct version, and checks whether the conduct governing the **live session** matches the installed one (the output style is read once at session start and is *not* refreshed by `/reload-plugins`, so a session can run stale conduct while its skills are current). |
+| `ok-planner:ok-version` | User types `/ok-version`. Read-only. Recites the plugin version and `ok-conduct` conduct version **this session** is running (plugin from the session-start line, conduct from the active output style). No disk read and no drift verdict — if a version is not what you expect, investigate from there. |
 
 ## Artifact layout
 
