@@ -9,7 +9,8 @@ Wraps `ok-planner:execute-plan` with isolation setup. Creates a git
 worktree on a new branch, copies ephemeral local config (`.env*`) and
 the target spec+plan into the worktree, provisions fresh host ports if
 the project parameterizes them through docker-compose or `.env`, then
-changes directory into the worktree and hands off to
+switches the session into the worktree (via the harness's native
+worktree tool where available) and hands off to
 `ok-planner:execute-plan`. The original checkout is left untouched —
 useful when the host project already has a dev stack running and you
 want plan execution to land on a side branch without colliding with it.
@@ -38,8 +39,10 @@ If the user is unsure whether they want isolation, they should use
      the end-of-skill summary.
    - Record the absolute path of the original project root
      (`ORIG_ROOT`). Every file operation in steps 4–6 uses absolute
-     paths against `ORIG_ROOT` and the worktree — no `cd` happens
-     until step 7.
+     paths against `ORIG_ROOT` and the worktree and needs no session
+     switch; the switch into the worktree happens in step 8 (on a
+     harness that switches the session wholesale, do it just before
+     step 7's affirm — see step 8).
 
 2. **Preserve pending work on the current branch.** The wrapper
    always creates a new branch for the worktree (step 3 picks the
@@ -156,12 +159,14 @@ If the user is unsure whether they want isolation, they should use
    from HEAD, so without this copy the plan files would be missing
    or stale inside the worktree.
    - Invoke `ok-planner:affirm` from the worktree to ensure
-     `.ok-planner/{plans,specs,...}` exists there. (Run affirm by
-     `cd`-ing into the worktree just for this step, then `cd` back
-     — or pass the worktree path through whatever Bash/Skill
-     mechanism keeps the rest of setup using absolute paths. The
-     mechanical detail does not matter; what matters is that
-     affirm runs against the worktree.)
+     `.ok-planner/{plans,specs,...}` exists there. Affirm must run
+     against the worktree, not the original checkout. On a harness
+     that switches the session wholesale (step 8's native-tool path),
+     do the step-8 switch **first**, then run affirm and the copies
+     below from inside the worktree. Otherwise run affirm with the
+     worktree as CWD (`cd <worktree> && …`) or via any mechanism that
+     targets the worktree — the mechanical detail does not matter,
+     only that affirm lands in the worktree.
    - Copy `<ORIG_ROOT>/<plan-relpath>` to
      `<worktree>/<plan-relpath>` (same relative path —
      `.ok-planner/plans/<basename>`). Overwrite if present.
@@ -173,10 +178,40 @@ If the user is unsure whether they want isolation, they should use
      copies; the originals stay until the user merges the worktree
      branch back or cleans them up manually.
 
-8. **Change directory into the worktree.** Single `cd <worktree>`
-   Bash call. All subsequent tool calls — the `Skill` invocation in
-   step 9 and any Agent dispatches it makes — run with the worktree
-   as CWD.
+8. **Switch the session into the worktree.** Everything that follows
+   — affirm, the plan copy, and especially `execute-plan`'s pass
+   implementers — must run *inside* the worktree, not the original
+   checkout. How depends on the harness:
+
+   - **If the harness exposes a native worktree session-switch**
+     (Claude Code: `EnterWorktree` with `path: <worktree>`), use it to
+     adopt the worktree created in step 4 and switch the session into
+     it. This is the robust path: it repoints the session's working
+     directory — and every subsequent tool call and dispatched
+     subagent — at the worktree. Enter the *existing* worktree by
+     `path`; do **not** use the tool's create mode (it would spawn a
+     second worktree with its own naming/base-ref). The user invoking
+     `/execute-plan-in-worktree` is the explicit instruction such
+     tools require.
+   - **Otherwise**, prefix every subsequent command with
+     `cd <worktree> && …` and pass the absolute worktree path into
+     each dispatched subagent. A lone `cd <worktree>` is **not**
+     reliable — many harnesses (Claude Code included) reset the shell
+     working directory to the project root after each command, so it
+     silently fails to persist and the run lands in the original
+     checkout. Never depend on `cd` persistence.
+
+   **Verify before handing off:** run `pwd` and `git rev-parse
+   --show-toplevel`; both must resolve to the worktree. If they do
+   not, the switch did not take — stop and fix it. The failure is
+   silent, and a subagent that runs in the original checkout mutates
+   the very tree this skill exists to protect.
+
+   *Cleanup note:* a worktree entered by `path` is **not** removed by
+   the session-switch tool's exit (`ExitWorktree`) — `keep` simply
+   returns the session to the original directory, consistent with the
+   "Do not delete or remove worktrees" rule below. Leave the session
+   in the worktree through handoff; never tear it down.
 
 9. **Surface the setup summary.** Before handing off, emit a short
    block the user can scan:
@@ -192,8 +227,10 @@ If the user is unsure whether they want isolation, they should use
    ```
 
 10. **Hand off to `ok-planner:execute-plan`.** Invoke the skill with
-    the plan path (now relative to the worktree, which is identical
-    to its original-relative form). From here, `execute-plan` owns
+    the plan path. Because the session is now in the worktree (step
+    8), the plan's original-relative path resolves against the
+    worktree — the path string is identical either way. From here,
+    `execute-plan` owns
     the run: dispatching pass implementers, gating verification,
     running the divergence audit, archiving inside the worktree. Do
     not shadow or replicate any of its behavior.
