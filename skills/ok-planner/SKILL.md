@@ -26,10 +26,12 @@ Invoke via the `Skill` tool with the `ok-planner:` prefix.
 | `ok-planner:discover-design` | User types `/discover-design`. Runs autonomously end-to-end via produce → review → fix loops. Two phases: (1) reads code + prose and writes as-is scaffolding to `.ok-planner/design/_discover/`; (2) extracts load-bearing concepts to `.ok-planner/design/concepts/`, a tensions catalog to `.ok-planner/design/tensions/`, and agent-confessed uncertainty to `.ok-planner/design/review-notes.md`. Outputs are as-is, not prescriptive. Aborts rather than overwrite human-edited `concepts/` or `tensions/`. |
 | `ok-planner:refine-design` | User types `/refine-design`. Specialization of `brainstorm` for resolving design tensions. Read-only intake — user picks tensions and resolution shapes; decisions go into a brief — then hands off to `brainstorm` to produce a spec with a `## Design changes` section capturing the concept-doc mutations and tension moves, alongside the code reconciliation. Flows through `write-plan` → `execute-plan`. |
 | `ok-planner:merge` | User types `/merge`. Surfaces design-doc findings against a recent merge or rebase (mechanical issues, drift, semantic conflicts) and runs a code review of the merge diff. Read-only against `.ok-planner/design/` — findings are written to a transient report and the user takes them through `/brainstorm` or `/refine-design` to produce a reconciliation spec. |
+| `ok-planner:coverage` | User types `/coverage`. Diagnostic for a project whose features shipped before acceptance scenarios existed — unit/integration tests green, but the assembled product was never driven end-to-end through its real value path. Read-only: enumerates the use cases the project *claims* to support (README, CLI verbs, routes, `concepts/`), subtracts what is *really* covered (rejecting stub-driven / tautological / shape-only tests as nominal-not-real), and writes a transient report to `.ok-planner/coverage/` — a ranked backlog of real gaps (each a proposed acceptance scenario) plus drift symptoms (claims with no real implementation: over-claim / half-built surface / concept drift). The user drives each gap through `/brainstorm → /write-plan → /execute-plan` (where the acceptance pass is mandatory) and each drift symptom through a cleanup spec that removes the false signal. Does not implement, does not run the product. |
 | `ok-planner:sketch` | User types `/sketch`. Single-pass design sketch for a new feature, saved to `.ok-planner/sketches/`. Pre-spec, no review loop, no dialogue. Does not lead into write-plan. |
 | `ok-planner:brainstorm` | User types `/brainstorm` |
 | `ok-planner:write-plan` | You have an approved spec and need an implementation plan |
 | `ok-planner:execute-plan` | You have a plan and want a single subagent to drive it to completion, then review |
+| `ok-planner:execute-plan-via-workflow` | User types `/execute-plan-via-workflow`. **Experimental** workflow-backed variant of `execute-plan`: the deterministic pass loop (dispatch → judge → gate → re-dispatch → converge → divergence audit) runs as a `Workflow` with code gates, so a pass cannot advance on a verification the orchestrator merely judged close enough; human-facing intake, escalation, final review (`review-work`), and the divergence walk stay in the skill. Reads the same plan format and the same proof-first verifications as `execute-plan`; fall back to `/execute-plan` if it behaves worse on a given plan. |
 | `ok-planner:execute-plan-in-worktree` | User types `/execute-plan-in-worktree`. Wraps `execute-plan` with isolation setup: creates a git worktree on a new branch, copies ephemeral local config (`.env*`) and the spec+plan into it, provisions fresh host ports if the project parameterizes them (docker-compose or `.env`), then `cd`s into the worktree and hands off to `execute-plan`. Use when the host project's dev stack is running and you want plan execution on a side branch without port/state collisions. |
 | `ok-planner:review-work` | Review all uncommitted changes |
 | `ok-planner:review-plan` | Review implementation against a spec/plan (interactive: lists plans) |
@@ -63,10 +65,13 @@ root (created on demand by `ok-planner:affirm`):
 - `.ok-planner/history/sketches/` — sketches moved here automatically
   by `/brainstorm` when it produces a spec from one or more source
   sketches
+- `.ok-planner/coverage/` — transient acceptance-coverage reports from
+  `/coverage` (`YYYY-MM-DD-coverage-report.md`), regenerated
+  whole on each run; a disposable diagnostic, not a durable registry
 
-Specs / plans / sketches / history are workflow scratch, not project
-documentation; do not propose updating them to reflect codebase
-evolution. The design docs under `design/` are the exception: they
+Specs / plans / sketches / history / coverage reports are workflow
+scratch, not project documentation; do not propose updating them to
+reflect codebase evolution. The design docs under `design/` are the exception: they
 are durable and have the same source-of-truth weight as code,
 updated alongside the code through `/execute-plan` runs.
 

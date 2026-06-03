@@ -39,16 +39,56 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 
 ## What a spec is
 
-A brainstorm produces **one spec**, capturing the full scope the user is
-designing. Do not split into multiple specs. If the scope is broader than one
-brainstorm can cover well, surface that to the user — they decide whether to
-narrow the brainstorm or keep going.
+A brainstorm produces **one spec**, and a spec is simply a **unit of
+work**: the set of things the user wants done. It carries no requirement
+of topic cohesion — the items need not belong to one feature, one
+subsystem, or one theme. "Get all of these done" is a complete, valid
+scope. Treat whatever the user hands over as that single unit and design
+it as one spec.
+
+Do **not** split it into multiple specs, and do **not** open the "these
+seem unrelated, should we break this into smaller scopes?" discussion —
+that decomposition is the user's to raise, not yours. If the user asks to
+narrow or split, follow them; otherwise design the whole set as given.
 
 A spec describes **what to build**: architecture, components, data flow,
-behavior, error handling, testing strategy. It does not describe **how to
-ship it**. No PRs, commits, branches, merge strategies, deployment steps,
+behavior, error handling, testing strategy, and — for any user-observable
+behavior — the acceptance scenario that defines what "working" means when
+the product runs (see "The acceptance scenario" below). It does not
+describe **how to ship it**. No PRs, commits, branches, merge strategies, deployment steps,
 release plans, or rollout phases. Delivery process is out of scope — the
 user owns that.
+
+## The acceptance scenario — the spec defines what "working" means
+
+A spec that changes what the running product does for its users must say,
+in product terms, what "working" looks like: at least one **acceptance
+scenario** describing the real use case the feature serves, as an
+observable run of the assembled product.
+
+Shape it as **«real input» reaches the running system → «real observable
+effect» appears at «real surface»**, in language a user of the product
+would recognize. The entry point is the real one (the HTTP route, the CLI
+verb, the wire message — not "call the handler"), and the outcome is a
+real one (a persisted state, a returned response, a downstream effect —
+not "the function returns the right struct"). The component that
+*delivers the value* is real in the scenario: if the feature's whole point
+is that some worker, executor, sensor, or subscriber does real work, the
+scenario drives a real one and names the real effect to observe. A canned
+stub standing in for the thing the feature exists to exercise is not an
+acceptance scenario.
+
+This is a design artifact, not a test yet — brainstorm writes it in prose;
+`write-plan` turns it into an executable end-to-end gate (its "acceptance
+pass"). Writing it now forces the design to state its own success
+condition before any code exists, in words a green unit test against a
+fake cannot satisfy.
+
+**When a spec needs none.** A spec with no user-observable behavior change
+— a pure refactor, docs- or concept-doc-only work, an internal mechanism
+no user reaches — has no acceptance scenario, and that is correct. The
+bar: does the running product do something observably different for a
+user? If yes, name the scenario; if no, skip it. When unsure, name one.
 
 ## Asking Questions
 
@@ -56,14 +96,14 @@ user owns that.
 - Prefer multiple choice when possible — presented as plain text (A, B, C…) with a recommendation. Free-form replies are always fine.
 - Do **not** use tools that constrain the user's reply to a predetermined structure (e.g. `AskUserQuestion`, poll-style pickers, forced single-select widgets). Ask in prose so the user can answer in prose, pick a letter, push back, reframe the question, or go off-script.
 - Focus on purpose, constraints, success criteria
-- Scope is the user's call. If it feels unclear or sprawling, ask — do not unilaterally decompose into sub-projects.
+- Scope is the user's call. A sprawling or many-item scope is fine — it is one unit of work, not a problem to fix. Don't ask whether to narrow it, and don't unilaterally decompose it into sub-projects or separate specs. Genuine clarifying questions about purpose, constraints, or a specific item are still welcome; "should we split this up?" is not.
 - Sequencing and task ordering are `write-plan`'s concern — defer if it comes up, unless the ordering choice is load-bearing for the design (it enables an invariant, rules out a footgun, picks between materially different futures), in which case it's a design decision and stays in the spec.
 
 ## Presenting the Design
 
 - Scale each section to its complexity
 - Ask after each section whether it looks right
-- Cover: architecture, components, data flow, error handling, testing
+- Cover: architecture, components, data flow, error handling, testing, and the acceptance scenario (what "working" looks like when the product runs)
 - YAGNI ruthlessly
 
 ## Surface every tradeoff — never resolve one silently
@@ -338,6 +378,19 @@ Agent (general-purpose):
   - Internal consistency (contradictions, conflicting requirements)
   - Clarity (ambiguity that could cause wrong implementation)
   - YAGNI (unrequested features)
+  - Acceptance scenario. If the spec introduces user-observable
+    behavior (the running product does something observably
+    different for a user), it must state at least one acceptance
+    scenario in product terms: a real entry point driving the
+    assembled product to a real observable outcome, with the
+    value-delivering component (executor, worker, sensor,
+    subscriber, …) real — not a stub. Flag a spec that changes
+    user-observable behavior but states no acceptance scenario, or
+    whose scenario is phrased in internal-mechanism terms (calls a
+    handler/helper, asserts a struct/proto shape) or stubs the very
+    component the feature exists to exercise. A pure refactor /
+    docs-only / no-user-surface spec correctly has none — do not
+    flag its absence there.
 
   Flag any PR, commit, branch, deployment, release, or rollout
   instructions — specs cover what to build, not how to ship it.

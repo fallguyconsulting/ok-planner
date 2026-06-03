@@ -37,7 +37,20 @@ Agent (general-purpose):
 
   Also check for:
   - Code that was added but isn't in the spec (scope creep)
-  - Tests that don't actually verify the spec requirements
+  - Tests that don't actually verify the spec requirements. A test
+    proves a behavior only if it drives the real system (the real
+    handler/process/store, an end-to-end path) and asserts an
+    observable outcome (a persisted row's state, a call made over the
+    wire, a status returned, a terminal reached) — NOT the shape of a
+    struct/proto/config, NOT a pure-helper call standing in for a
+    runtime behavior, NOT an in-memory fake substituted for the system
+    under test. For each behavior the spec requires, confirm such a
+    test exists and that it would fail if the implementation were
+    removed: if reverting the fix leaves the test green, the test is
+    theater and the behavior is effectively unverified — report it as
+    Broken. A test whose name implies an end-to-end outcome but whose
+    body only constructs a value and asserts its fields is the
+    canonical offender.
   - Load-bearing properties the spec/plan relied on that the implementation silently traded away. Name the properties the spec depends on — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical," "this path must not block" — and verify each survives in the code, not just on the happy path. A property the spec relied on but the implementation no longer guarantees (e.g. an audit write the spec called authoritative, made async-and-droppable to save latency) is a finding even when nothing looks broken — review the property, not just the line-by-line conformance.
 
   ### Pre-existing issues

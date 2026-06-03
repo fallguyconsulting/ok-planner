@@ -130,6 +130,135 @@ explicit constraint, note it for the end-of-run handoff. The model
 is: make the call, let the reviewer check it, surface it to the
 user at the end — not pause mid-plan to ask.
 
+## Proof-first: a behavior change ships as a red test, then the fix
+
+The deepest execution failure is a feature that looks done because a
+test is green — but the test never exercised the behavior, so it was
+green before the code existed and stays green if the code is deleted.
+A green build then certifies a half-wired feature as complete. The
+plan prevents this **mechanically**, not by asking the implementer to
+"write good tests."
+
+**Every task that changes runtime behavior — a bug fix or a new
+feature path — is planned as a red task followed by a green task:**
+
+1. **Red task — add the proof, gate it to FAIL.** Add the test (or
+   runnable demo) that drives the *real* system and asserts an
+   *observable outcome*. Its verification asserts the test **fails**
+   against current code: `Verification: ! <the exact test command>` —
+   the gate exits 0 only when the test fails (`!` inverts the exit
+   code in any POSIX shell).
+2. **Green task — implement the fix, gate it to PASS.** Implement the
+   change. Its verification runs the *same named test* and asserts it
+   now passes: `Verification: <the exact test command>`.
+
+This is mechanical, not trust. A test that is green against current
+code — a struct/proto-shape assertion, a pure-helper call, a test
+written after the code — **fails the red gate** (it passes when it
+must fail), so `execute-plan` re-dispatches and it cannot reach DONE.
+Only a test coupled to the actual behavior passes both gates. The red
+task is red-green-revert done forward: the test is *proven* red
+without the fix — strictly stronger than reverting after the fact, and
+with no risky git surgery during the run.
+
+**What counts as a real proof:**
+
+- **Drives the real system** — the actual handler, the real process, a
+  testcontainers-backed store, an end-to-end dispatch — not an
+  in-memory fake substituted for the unit under test, and not a pure
+  function called in isolation as a proxy for a runtime behavior.
+- **Asserts an observable outcome** — a persisted row's state, a call
+  made over the wire, a returned status, a terminal state reached,
+  bytes written. Not the *shape* of a struct/proto/config, and not
+  "returned without error."
+- **Named concretely in the red task** — which test function and file,
+  what real path it drives, what observable outcome it asserts. "Add a
+  test" is not a task. "Add `TestHoldsOnlyAutoTerminal` in
+  `runner_test.go` that registers a `holds:`-only template, dispatches
+  the co-holder against a testcontainers Postgres, and asserts the
+  claim handle reaches `committed`" is.
+
+**The verification names the specific test, not a blanket suite.**
+`go test ./...` / `npm test` is satisfied by *any* green test in the
+tree, so it can't prove *this* fix. The green task targets the named
+test (`go test -run TestHoldsOnlyAutoTerminal ./lib/runtime/...`); a
+broad suite run may be added *as well*, never *instead*.
+
+**Red and green are separate tasks, never collapsed** into one "add
+code and its test" step. Usually the red task is the tail of a pass
+and the green task opens the next, or both sit in one pass as adjacent
+tasks. A red task's pass ends `working` with an asserts-failure
+verification (`! <test>`) — a legitimate `working` gate, not
+`broken-intentional`: the tree builds, one new test is intentionally
+red, and the gate confirms exactly that.
+
+**Scope.** Applies to behavior changes — anything that alters what the
+running system does. Pure behavior-preserving refactors, doc /
+concept-doc edits, and mechanical config changes don't need a red test
+but still carry their normal verification. In doubt, treat it as
+behavior and write the red test.
+
+**Fallback (rare).** If a test genuinely can't be written before the
+fix (e.g., it can't compile without a type the fix introduces), plan a
+green task that adds fix + test, then an immediately following
+**revert-check task** that removes only the fix — by editing it out and
+back, never with `git stash`/`checkout`/`reset` — runs the test to
+confirm it goes red, and restores the fix, capturing the red-then-green
+output. Prefer red-first; use this only when red-first is structurally
+impossible.
+
+## Acceptance: prove the assembled feature against the real product
+
+Proof-first (above) gates each behavior change with its own red→green
+test. But a feature is more than the sum of its behavior changes: the
+handler can pass its test, the route can pass its test, and the two can
+still never be wired together. Unit and integration tests prove the
+parts; nothing there proves the *assembled* feature does its job when the
+real product runs. The acceptance pass closes that gap.
+
+**If the spec states an acceptance scenario** (the use case in product
+terms — see `brainstorm`'s "The acceptance scenario"), the plan's **final
+pass is an acceptance pass** that turns it into an executable end-to-end
+gate:
+
+- **End state `working`.** It is the last pass, so the plan ends on a
+  green acceptance gate.
+- **It boots the real assembled product** — the shipped binaries, the
+  real image, the real entry point a user would hit (HTTP route, CLI
+  verb, wire message) — and drives the spec's acceptance scenario to its
+  observable outcome. Not an in-process construction of components, not a
+  unit harness calling a handler directly: the thing a user actually
+  runs. A testcontainers-backed or subprocess-backed end-to-end test that
+  brings up the real artifact counts; an in-memory assembly of structs
+  does not.
+- **The value-delivering component is real, not stubbed.** If the feature
+  exists so that some executor, worker, sensor, or subscriber does real
+  work, the acceptance scenario wires a real one doing real work and
+  asserts the real effect. A canned-success stub at this gate defeats the
+  entire pass — it is the single thing this pass most exists to forbid.
+- **It is proof-first.** Ideally the feature's final integrating wiring is
+  the green task and the acceptance scenario is authored to FAIL before it
+  (`Verification: ! <acceptance command>`), flipping to pass once the
+  wiring lands — so the gate cannot pass against an unwired feature. Where
+  earlier passes already assembled everything and the scenario is green on
+  arrival, use the proof-first **revert-check fallback** (see above) to
+  prove it would go red without the feature's integrating edit.
+- **Verification names the acceptance command** — runnable and readable
+  from its output like every other gate, never a manual "bring up the
+  stack and look."
+
+This pass is what makes "the product actually works" a machine-checked
+gate instead of a `## Manual checks after completion` afterthought. As
+specs accumulate, their acceptance passes become the project's end-to-end
+regression coverage as a byproduct — committed tests, re-run by the normal
+suite — with nothing maintaining a separate corpus.
+
+**When a plan needs no acceptance pass.** Only when the spec states no
+acceptance scenario (a pure refactor, docs / concept-doc-only work, an
+internal mechanism with no user-reachable surface). If the spec states an
+acceptance scenario, the plan must carry the acceptance pass; the planner
+does not get to drop it or downgrade it to a unit test.
+
 ## Autonomous Execution Required
 
 Plans are executed by `ok-planner:execute-plan`, which runs unsupervised. Every step must be something an agent can perform on its own — no human in the loop until the plan is fully implemented and reviewed.
@@ -145,7 +274,7 @@ Do **not** include steps that require:
 
 All verification must be expressible as a command the implementer can run and read the output of — typically a test, a type check, a lint, or a targeted script. "The test passes" is a verification. "It looks right" is not.
 
-If a feature genuinely requires manual verification that cannot be automated (e.g., visual review of a rendered UI, a human-in-the-loop ML evaluation), **do not** put it inside a task. Collect those items in a final `## Manual checks after completion` section at the end of the plan. That section is for the user to run through after the implementation and code review are done — it is not part of the automated run.
+If a feature genuinely requires manual verification that cannot be automated (e.g., visual review of a rendered UI, a human-in-the-loop ML evaluation), **do not** put it inside a task. Collect those items in a final `## Manual checks after completion` section at the end of the plan. That section is for the user to run through after the implementation and code review are done — it is not part of the automated run. **"Does the feature actually work when the product runs" is not one of these items** — that is the acceptance pass (see "Acceptance" above), an automated end-to-end gate, not a manual check. Reserve this section for verifications that genuinely cannot be expressed as a command (true visual judgment of a rendered UI, human-in-the-loop evaluation); never use it to defer end-to-end validation that could be automated.
 
 ## File Structure
 
@@ -175,7 +304,7 @@ Map out files before defining tasks. Design units with clear boundaries. Each fi
 
 Most passes are `working`. `broken-intentional` is for migrations and replacements where the half-state is unavoidable: "delete old auth code → add new auth code → flip callers → restore tests" is naturally 3–4 passes with the middle two non-working. Do not use `broken-intentional` to avoid writing a verification command; use it only when the codebase genuinely cannot pass its checks at the pass boundary.
 
-**Verification:** A `working` pass has a verification command the executor runs between passes — a test, typecheck, lint, or targeted script. The command's exit code is the gate. A `broken-intentional` pass has `Verification: none` because the codebase isn't expected to verify cleanly.
+**Verification:** A `working` pass has a verification command the executor runs between passes — a test, typecheck, lint, or targeted script. The command's exit code is the gate. A `broken-intentional` pass has `Verification: none` because the codebase isn't expected to verify cleanly. A verification may *assert failure*: a red-test gate `! <the exact test>` exits 0 only when the named test fails, and is a legitimate `working` verification for a red task (see "Proof-first").
 
 ## Task granularity (within a pass)
 
@@ -185,6 +314,13 @@ Each step inside a task is one discrete, verifiable action: one thing the implem
 - "Run it to verify it fails" -- step
 - "Implement the code" -- step
 - "Run tests to verify they pass" -- step
+
+For a behavior change these steps split across the **red task** and the
+**green task** (see "Proof-first"): the red task ends at "run it to
+verify it fails" and is gated on that failure (`Verification: ! <test>`);
+the green task implements the code and is gated on the test passing. The
+"verify it fails" step is not optional or self-reported — it is the red
+task's verification command, and `execute-plan` runs it.
 
 Do not bundle independent edits into one step. Frame steps by the action they perform and the check that follows — never by how long they would take, how easy they are, or how much effort they require.
 
@@ -311,6 +447,41 @@ Agent (general-purpose):
     load-bearing property with no real verification is a blocking
     gap: it can regress silently during execution and slip past
     review.
+  - Proof-first compliance (blocking). For every task that changes
+    runtime behavior, the plan must pair a **red task** (adds the
+    test, verification asserts it FAILS — `! <the exact test>`) with a
+    **green task** (implements the fix, verification runs the *same
+    named test* and asserts it passes). Check that: (a) the test
+    drives the real system and asserts an observable outcome — a
+    persisted row, a wire call, a returned status, a terminal reached
+    — NOT a struct/proto/config shape, a pure-helper call, or an
+    in-memory fake standing in for the system under test; (b) the red
+    task's verification is an asserts-failure gate, not a green-from-
+    birth test; (c) the verification names the specific test, not a
+    blanket `go test ./...` / `npm test` that any green test satisfies;
+    (d) red and green are separate tasks, not collapsed. A behavior
+    change with no red task, a shape-only "test", or a blanket-suite
+    verification is a blocking gap — that is exactly the defect that
+    lets a half-wired feature pass as done.
+  - Acceptance-pass compliance (blocking). If the spec states an
+    acceptance scenario, the plan's final pass must be an acceptance
+    pass that (a) boots the real assembled product / shipped entry
+    point — not an in-process construction of components or a unit
+    harness calling a handler directly; (b) drives the spec's
+    acceptance scenario to its real observable outcome; (c) keeps the
+    value-delivering component real — a real executor / worker /
+    sensor / subscriber doing real work; a stub or canned-success
+    substitute at this gate is a blocking gap; (d) is gated
+    proof-first (red-then-green, or the revert-check fallback) so the
+    gate cannot pass against an unwired feature; (e) names a runnable
+    acceptance command, not a manual check. A spec with a stated
+    acceptance scenario but no acceptance pass — or an acceptance pass
+    that stubs the very component the feature exists to exercise, or
+    that only assembles components in-process — is a blocking gap:
+    that is exactly the defect that lets every unit test pass while
+    the assembled product does not work. A spec with no acceptance
+    scenario (pure refactor / docs-only / no user-observable change)
+    correctly has no acceptance pass; do not flag its absence there.
   - Task decomposition (one discrete action plus verification per
     step)
   - Buildability (the implementer can act on each task from the
@@ -349,7 +520,9 @@ Agent (general-purpose):
     is intentional.
   - The final pass MUST end with `working` (the plan can't leave
     the codebase broken). Flag any plan whose last pass is
-    `broken-intentional`.
+    `broken-intentional`. For a spec that states an acceptance
+    scenario, this final `working` pass is the acceptance pass (see
+    "Acceptance-pass compliance" above).
   - `working` passes have a non-empty Verification command the
     executor can run between passes. `broken-intentional` passes
     have `Verification: none`. Flag mismatches.

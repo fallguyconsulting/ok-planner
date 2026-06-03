@@ -35,6 +35,8 @@ You are the taskmaster. You do not implement. You dispatch each pass, verify the
 
    c. **Run the pass verification gate.** If the pass's **End state** is `working`, run its **Verification** command. If it exits 0, advance to the next pass. If it exits non-zero, re-dispatch the pass with the failed verification output included as a directive (see "Re-dispatch"). If the pass's **End state** is `broken-intentional`, skip the gate and advance — the broken state is the declared outcome and the next pass (or a later one) restores working state.
 
+   A `working` pass whose **Verification** is an *asserts-failure red gate* — a command like `! <test>` that exits 0 only when a named test FAILS — gates exactly as usual: exit 0 means the new test correctly fails before its fix lands (proof-first, see `write-plan`), so advance. Exit non-zero means the test did *not* fail as required (often a shape test that's green from birth) — re-dispatch. Do not "helpfully" make the red test pass; the fix lands in the next pass.
+
    d. **Sanity check before advancing.** If the just-completed pass was `broken-intentional` and the pass it named as the restorer doesn't exist in the plan (e.g., "restored by Pass 7" but the plan only has 6 passes), stop and escalate — the plan is internally inconsistent. This is a planner failure, not an implementer failure; the user needs to know.
 
    Continue until every pass has reported DONE and passed (or skipped) its verification gate.
@@ -106,6 +108,8 @@ Agent (general-purpose):
   [If `working`: "The codebase must verify cleanly at the end of this pass. After your final task, run the pass's Verification command and confirm it exits 0 before reporting DONE. If it fails, debug and fix — that's part of this pass."]
 
   [If `broken-intentional`: "This pass deliberately leaves the codebase non-working. Pass [N] is responsible for restoring it. Do NOT run the plan's overall build/test suite expecting it to pass — it won't, and that's intended. Do run any per-task verifications the pass specifies (e.g., `git status` confirming a file was deleted). Report DONE when every task in this pass is complete, regardless of whether the broader tree compiles."]
+
+  [If this pass's **Verification** is an asserts-failure red gate (a command like `! <test>` that exits 0 only when a named test FAILS): this is a proof-first red task. Your job is to ADD that test so it drives the real system, asserts an observable outcome, and **fails** against the current code — then leave it failing. Do NOT implement the behavior that would make it pass; a later pass does that. "Working" here means the tree still builds and the new test is intentionally red. Run the Verification and confirm it exits 0 (i.e., the test fails as intended) before reporting DONE. If your test passes on its first run, it isn't coupled to the missing behavior — fix the test until it fails for the right reason.]
 
   ## Design-doc mutations (if any)
 
@@ -291,7 +295,7 @@ After the review reports clean, walk the divergence entries with the user using 
 - The orchestrator dispatches each pass, gates on its verification, and advances; it does not implement.
 - The orchestrator does not interrupt the subagent mid-dispatch.
 - Review happens once, after all passes are DONE — not between passes.
-- Per-pass verification (between passes) is not "review" — it's a fast machine check that exits 0 or doesn't. If you need human judgment about whether a pass succeeded, the verification command isn't tight enough; that's a plan defect, not a step to insert here.
+- Per-pass verification (between passes) is not "review" — it's a fast machine check that exits 0 or doesn't. If you need human judgment about whether a pass succeeded, the verification command isn't tight enough; that's a plan defect, not a step to insert here. A red gate (`! <test>`, asserting a new test fails before its fix lands) is still a pure machine check: exit 0 means "the named test correctly failed."
 - Do not commit at any point. The user commits when ready.
 - Never revert, reset, or clean the working tree — this binds the orchestrator as well as every dispatched agent. No `git checkout -- <path>`, `git restore`, `git reset`, `git stash`, or `git clean`, even on a single file. Uncommitted work from earlier passes lives all over the tree with no commit to recover it; a revert destroys it silently. Implementers checkpoint each task with `git add -A` (staging, not committing) so the index always holds known-good progress; recovery from any botched edit is fix-forward, never undo. If you need to roll a pass back to a clean baseline, that is a plan/escalation matter for the user — not a `git reset` you run yourself.
 - Work proceeds on whatever branch is currently checked out, including `main`/`master`. Do not create branches, switch branches, or stop to ask which branch to use — branch/worktree setup is the caller's concern (see `execute-plan-in-worktree` for the isolated-branch variant).
