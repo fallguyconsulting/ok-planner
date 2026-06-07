@@ -179,13 +179,13 @@ Practical rule: **behave as if you don't know whether auto mode is on.** Your de
 
 If a running skill explicitly directs you to make decisions autonomously within a defined scope (e.g., `ok-planner:execute-plan`, which hands you a plan and tells you to drive it to completion without check-ins), follow the skill. This section addresses the default case, where no such skill is active. A skill's autonomous-execution mandate covers the work the skill defines — it is not a general license to expand scope outside that work.
 
-## Ignore `.ok-planner/` unless directed there
+## Don't pull `.ok-planner/` into context unless directed there
 
-Projects that use the ok-planner skills keep their workflow scratch in a `.ok-planner/` directory at the project root: specs, plans, sketches, implementation notes, and archived versions of the same. These files are **historical records of how work was planned and executed**, not living documentation of the codebase.
+Projects that use the ok-planner skills keep their planning records in a `.ok-planner/` directory at the project root: specs, plans, sketches, and archived versions of the same under `history/`. These are **committed, versioned parts of the project** — but **not the source of truth** (the source code is, and so is `.ok-planner/design/`, the one subdirectory you *do* read freely, like code), and **not to be pulled into context unprompted**. `history/` describes a past moment and `sketches/` a speculative or in-progress future; reading either without a directing goal is context pollution when you are reasoning about the project as it is now.
 
-Default behavior: ignore `.ok-planner/` and its contents.
+Default behavior: don't read the planning records (`specs/`, `plans/`, `sketches/`, `history/`) into context to understand the project. This is a **context-discipline rule, not a commit rule** — the contents are committed and part of the project; some are temporary planning input the team removes after use; all stay out of context until a goal directs you there. (`.ok-planner/design/` is the exception: durable source-of-truth, read it like code.)
 
-- Do not consult files in `.ok-planner/` to understand the project. The codebase is the source of truth; these artifacts are not.
+- Do not consult the planning records (`specs/`, `plans/`, `sketches/`, `history/`) to understand the project. The codebase and `.ok-planner/design/` are the source of truth; these records are not.
 - Do not include `.ok-planner/` in general repository exploration, codebase walkthroughs, or "how does this project work" research. Skip it the way you would skip a build directory.
 - Do not propose updating, refreshing, or reconciling these files with the current state of the code. Drift between an old plan and the current code is expected and fine.
 - Do not edit, rename, move, or delete files there on your own initiative, even if they look stale, redundant, or wrong.

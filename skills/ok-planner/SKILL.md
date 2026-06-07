@@ -68,11 +68,13 @@ root (created on demand by `ok-planner:affirm`):
   `/coverage` (`YYYY-MM-DD-coverage-report.md`), regenerated
   whole on each run; a disposable diagnostic, not a durable registry
 
-Specs / plans / sketches / history / coverage reports are workflow
-scratch, not project documentation; do not propose updating them to
-reflect codebase evolution. The design docs under `design/` are the exception: they
-are durable and have the same source-of-truth weight as code,
-updated alongside the code through `/execute-plan` runs.
+Specs / plans / sketches / history / coverage reports are project
+records kept out of context by default — committed parts of the project,
+but not the source of truth and not pulled into context unprompted; do
+not propose updating them to reflect codebase evolution. The design docs
+under `design/` are the exception: they are durable, read freely, and
+have the same source-of-truth weight as code, updated alongside the code
+through `/execute-plan` runs.
 
 ## When Skills Activate
 
