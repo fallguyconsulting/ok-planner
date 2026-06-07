@@ -29,10 +29,10 @@ layout.
 ## Why this skill exists
 
 The forward pipeline now makes working software emerge by construction: every
-spec with user-observable behavior states an **acceptance scenario** (see
-`brainstorm`'s "The acceptance scenario"), and `write-plan` turns it into a
-final **acceptance pass** that boots the real product with the value-delivering
-component real, not stubbed. The accumulated acceptance passes *are* the
+spec with user-observable behavior opens with a complete set of **user-outcome
+stories** (see `brainstorm`'s "User outcomes"), and `write-plan` turns each into
+a final **acceptance gate** that boots the real product with the value-delivering
+component real, not stubbed. The accumulated per-story acceptance gates *are* the
 project's end-to-end regression corpus — no registry is maintained by hand.
 
 A project that shipped before those gates has none of them. Its real value loops
@@ -218,13 +218,13 @@ product promises most prominently, with the thinnest real coverage, go first.
 A headline use case with only nominal coverage outranks a peripheral one with
 none — highest credibility risk first.
 
-For each gap, **draft the acceptance scenario** exactly as `brainstorm`'s "The
-acceptance scenario" defines it: **«real input» reaches the running system →
-«real observable effect» appears at «real surface»**, in product terms, with the
+For each gap, **draft the acceptance scenario** exactly as `brainstorm`'s "User
+outcomes" defines a story's acceptance: **«real input» reaches the running system
+→ «real observable effect» appears at «real surface»**, in product terms, with the
 value-delivering component **real, not stubbed**. This prose scenario is the
-deliverable — it becomes the spec's acceptance scenario when the gap is taken
-into `brainstorm` / `write-plan`, and `write-plan` turns it into the mandatory
-acceptance pass.
+deliverable — it becomes one of the spec's user-outcome stories when the gap is
+taken into `brainstorm` / `write-plan`, and `write-plan` turns it into that
+story's mandatory acceptance gate.
 
 **Do not write the test.** The scenario is a design artifact; the acceptance pass
 (the executable gate) is written downstream by `execute-plan`, against the real

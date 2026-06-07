@@ -51,44 +51,81 @@ seem unrelated, should we break this into smaller scopes?" discussion —
 that decomposition is the user's to raise, not yours. If the user asks to
 narrow or split, follow them; otherwise design the whole set as given.
 
-A spec describes **what to build**: architecture, components, data flow,
-behavior, error handling, testing strategy, and — for any user-observable
-behavior — the acceptance scenario that defines what "working" means when
-the product runs (see "The acceptance scenario" below). It does not
-describe **how to ship it**. No PRs, commits, branches, merge strategies, deployment steps,
+A spec describes **what to build**, and it **opens with its user
+outcomes** — the complete, enumerated set of business needs it serves,
+each a story with a user-outcome-level acceptance (see "User outcomes"
+below). The mechanism that follows — architecture, components, data
+flow, behavior, error handling, testing strategy — exists to serve those
+outcomes. It does not describe **how to ship it**. No PRs, commits, branches, merge strategies, deployment steps,
 release plans, or rollout phases. Delivery process is out of scope — the
 user owns that.
 
-## The acceptance scenario — the spec defines what "working" means
+## User outcomes — the spec's originating contract
 
-A spec that changes what the running product does for its users must say,
-in product terms, what "working" looks like: at least one **acceptance
-scenario** describing the real use case the feature serves, as an
-observable run of the assembled product.
+A spec **opens** with its user outcomes: the complete, enumerated set of
+business needs it serves, each stated as a **story** a user can observe.
+This is the spec's originating content — written first, before any
+mechanism (architecture, components, protos, config). The mechanism
+exists to serve the stories; the stories are not derived from it.
 
-Shape it as **«real input» reaches the running system → «real observable
-effect» appears at «real surface»**, in language a user of the product
-would recognize. The entry point is the real one (the HTTP route, the CLI
-verb, the wire message — not "call the handler"), and the outcome is a
-real one (a persisted state, a returned response, a downstream effect —
-not "the function returns the right struct"). The component that
-*delivers the value* is real in the scenario: if the feature's whole point
+Shape each story as:
+
+> **S-«slug»** — As «role», I can «capability», so that «business value».
+> **Acceptance:** «real input» reaches the running system → «real
+> observable effect» appears at «real surface».
+
+The acceptance is stated at the **user-outcome level**, in language a
+user of the product would recognize. The entry point is the real one
+(the HTTP route, the CLI verb, the wire message — not "call the
+handler"), and the outcome is a real one (a persisted state, a returned
+response, a downstream effect — *not* "the function returns the right
+struct," *not* "the handler is registered," *not* "returns 200"). The
+component that *delivers the value* is real: if the story's whole point
 is that some worker, executor, sensor, or subscriber does real work, the
-scenario drives a real one and names the real effect to observe. A canned
-stub standing in for the thing the feature exists to exercise is not an
-acceptance scenario.
+acceptance drives a real one and names the real effect to observe. A
+canned stub standing in for the thing the story exists to exercise is
+not an acceptance.
 
-This is a design artifact, not a test yet — brainstorm writes it in prose;
-`write-plan` turns it into an executable end-to-end gate (its "acceptance
-pass"). Writing it now forces the design to state its own success
-condition before any code exists, in words a green unit test against a
-fake cannot satisfy.
+**The story set is the whole contract — floor and ceiling.**
+- *Floor:* every story must demonstrably happen end-to-end before the
+  work is done. `write-plan` turns each into an executable acceptance
+  gate; the run cannot complete with any story's acceptance red.
+- *Ceiling:* nothing gets built that no story requires. The stories are
+  the boundary — that is what the spec is *for*.
 
-**When a spec needs none.** A spec with no user-observable behavior change
-— a pure refactor, docs- or concept-doc-only work, an internal mechanism
-no user reaches — has no acceptance scenario, and that is correct. The
-bar: does the running product do something observably different for a
-user? If yes, name the scenario; if no, skip it. When unsure, name one.
+**No feature is deferred.** A spec contains no "out of scope / non-goals
+/ V2 / future / later / deferred" for any *capability*. The pipeline
+treats such language as an un-sanctioned deferral, not a boundary — it is
+exactly how spec'd features historically ended up unbuilt. To bound
+scope, **omit the story** (or, if it came from a source sketch the user
+wants to keep for later, route it back to a sketch — see "Source
+sketches"); never write it into the spec as deferred. The boundary is
+decided once, at authoring, by which stories the spec contains — never
+re-decided during execution. (The "delivery process is out of scope — no
+PRs/commits/branches" exclusion above is unaffected: it bounds *process*,
+not a feature.)
+
+**Intent over literal text (the necessity rule).** The contract is each
+story's *intent*. Implementation must build whatever is **necessary** for
+a story's acceptance to hold — including pieces this spec never spelled
+out — and **nothing adjacent** the stories don't require. The test is
+necessity, not similarity: a piece is in scope iff some story's
+acceptance fails without it. `write-plan` and `execute-plan` enforce this;
+the spec's job is to state the outcomes precisely enough that "does this
+story's acceptance hold?" has a clear answer.
+
+These are design artifacts, not tests yet — brainstorm writes them in
+prose; `write-plan` turns each into an executable end-to-end gate (its
+"acceptance pass"). Writing them now forces the design to state its own
+success conditions before any code exists, in words a green unit test
+against a fake cannot satisfy.
+
+**When a spec needs none.** A spec with no user-observable behavior
+change — a pure refactor, docs- or concept-doc-only work, an internal
+mechanism no user reaches — has no user-outcome stories, and that is
+correct. The bar: does the running product do something observably
+different for a user? If yes, every such outcome is a story; if no, skip
+the section. When unsure, write the story.
 
 ## Asking Questions
 
@@ -103,7 +140,7 @@ user? If yes, name the scenario; if no, skip it. When unsure, name one.
 
 - Scale each section to its complexity
 - Ask after each section whether it looks right
-- Cover: architecture, components, data flow, error handling, testing, and the acceptance scenario (what "working" looks like when the product runs)
+- Cover: the user outcomes first (the complete set of stories that define what "working" looks like when the product runs), then architecture, components, data flow, error handling, testing
 - YAGNI ruthlessly
 
 ## Surface every tradeoff — never resolve one silently
@@ -378,19 +415,32 @@ Agent (general-purpose):
   - Internal consistency (contradictions, conflicting requirements)
   - Clarity (ambiguity that could cause wrong implementation)
   - YAGNI (unrequested features)
-  - Acceptance scenario. If the spec introduces user-observable
-    behavior (the running product does something observably
-    different for a user), it must state at least one acceptance
-    scenario in product terms: a real entry point driving the
-    assembled product to a real observable outcome, with the
-    value-delivering component (executor, worker, sensor,
-    subscriber, …) real — not a stub. Flag a spec that changes
-    user-observable behavior but states no acceptance scenario, or
-    whose scenario is phrased in internal-mechanism terms (calls a
-    handler/helper, asserts a struct/proto shape) or stubs the very
-    component the feature exists to exercise. A pure refactor /
-    docs-only / no-user-surface spec correctly has none — do not
-    flag its absence there.
+  - User outcomes (the spec's originating contract). If the spec
+    introduces user-observable behavior, it must OPEN with a
+    complete, enumerated set of user-outcome stories — one per
+    distinct user-observable outcome it promises — each with an
+    acceptance stated at the user-outcome level: a real entry point
+    driving the assembled product to a real observable outcome, with
+    the value-delivering component (executor, worker, sensor,
+    subscriber, …) real — not a stub. Check all of:
+    - **Completeness.** Every user-observable capability the spec
+      describes (in any section, including any mechanism it details)
+      has a corresponding story. A capability the mechanism delivers
+      but no story names is the exact hole that ships unbuilt — flag
+      it.
+    - **User-outcome level.** Reject acceptance phrased in
+      implementation terms — "the handler is registered," "the class
+      is declared," "returns 200," "calls helper X," "asserts the
+      struct shape" — and any story that stubs the very component it
+      exists to exercise. Acceptance must read as the outcome a user
+      observes.
+    - **No feature deferral.** Flag any "out of scope / non-goals /
+      V2 / future / later / deferred" applied to a *capability* — the
+      spec bounds scope by which stories it contains, not by deferring
+      features in prose. (The delivery-process exclusion —
+      PRs/commits/branches — is fine.)
+    A pure refactor / docs-only / no-user-surface spec correctly has
+    no stories — do not flag their absence there.
 
   Flag any PR, commit, branch, deployment, release, or rollout
   instructions — specs cover what to build, not how to ship it.

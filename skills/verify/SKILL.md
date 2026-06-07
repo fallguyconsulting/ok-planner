@@ -23,6 +23,7 @@ Before claiming any status:
 | Tests pass | Test output: 0 failures | Previous run, "should pass" |
 | Build succeeds | Build output: exit 0 | Partial check |
 | Bug fixed / behavior works | The test was **red without the fix and green with it** — you ran both and saw the flip | A test that passed the first time it ran; it was never coupled to the change |
+| Spec / plan complete | **Every** user-outcome story's acceptance gate is green, each run against the real assembled product | Most stories green; "the headline scenario works"; the mechanism exists but the user-outcome was never observed |
 
 ## A green test only counts if it was red first
 

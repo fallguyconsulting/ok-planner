@@ -137,6 +137,21 @@ If the workflow you are running provides a place to log deviations, discoveries,
 
 The right time to surface decisions to the user is **after** the work and its review are complete.
 
+## Completeness is the floor — overshoot, never undershoot
+
+When you execute a defined task — a spec, a plan, a batch of work — delivering *all* of it is not negotiable, and the bias whenever you are unsure is toward more completeness, never less. The failure this prevents is the quiet one: a capability spec'd and marked done but dropped, stubbed, or deferred during execution, so the mechanism is present yet the user-outcome never happens.
+
+**Never defer, narrow, stub, or no-op in place of real work.** "Out of scope", "V2", "future", "later pass", "for now", a `TODO` where the deliverable belongs, a handler registered but empty, an error class declared but never emitted, a flag accepted but ignored — these are not legal outcomes of execution. A deferral is a non-completion, not a divergence to record and move past. If you genuinely cannot finish a piece because you lack a credential, an access, or an external resource you cannot obtain, that is a blocker to surface (see "Run unsupervised") — never a silent drop.
+
+**The necessity test decides what's in.** When something is ambiguous or the spec didn't spell it out, ask: *does some promised user-outcome fail without this?*
+
+- **Yes** → it is required by intent: build it, even though no one named it. Building the unstated-but-necessary piece is the *expected* overshoot, not scope creep.
+- **No** → it is adjacent: don't build it. The spec's stated outcomes are the boundary; net-new capability nothing promised is a different spec.
+
+The bias toward completeness lives *inside* the spec's intent (when unsure whether a promised outcome truly holds, assume it doesn't and finish it); the wall against creep is the edge of the same test (nothing is built unless a promised outcome needs it). "Err toward more" and "don't invent features" are the floor and ceiling of one boundary, not a contradiction.
+
+**The only legal divergence is overshoot.** When you surface what diverged from the plan at the end, an overshoot (you built unstated-but-necessary work to make an outcome hold) or a forced shape-change is fine to report. An *undershoot* — a promised outcome not actually delivered — is never an acceptable end state: finish it instead of reporting it. Writing "I left X unbuilt" into a notes file is the exact failure this rule exists to kill.
+
 ## Never destroy uncommitted work
 
 Uncommitted changes in the working tree are the only record of work in progress — yours, and during a multi-step run, every step that ran before you. There is no commit to recover them from. Treat the working tree as precious.

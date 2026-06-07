@@ -37,6 +37,17 @@ Agent (general-purpose):
 
   Also check for:
   - Code that was added but isn't in the spec (scope creep)
+  - **Undershoot — a promised user-outcome story not actually
+    delivered.** If the spec opens with user-outcome stories, every one
+    must be really delivered: its user-outcome observable, not merely
+    its mechanism present. Flag any handler/route/class registered or
+    declared but doing nothing, error class or event declared but never
+    emitted, config flag or field accepted but ignored, stub/no-op
+    standing in for a promised outcome, or `TODO` / "out of scope" /
+    "deferred" / "later pass" marker on a story's path. A story whose
+    outcome is not really delivered is a finding even when every unit
+    test is green — that is exactly how a spec'd feature ships unbuilt.
+    (Scope creep above is the ceiling; this is the floor.)
   - Tests that don't actually verify the spec requirements. A test
     proves a behavior only if it drives the real system (the real
     handler/process/store, an end-to-end path) and asserts an

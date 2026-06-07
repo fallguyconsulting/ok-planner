@@ -192,11 +192,15 @@ verification (`! <test>`) — a legitimate `working` gate, not
 `broken-intentional`: the tree builds, one new test is intentionally
 red, and the gate confirms exactly that.
 
-**Scope.** Applies to behavior changes — anything that alters what the
-running system does. Pure behavior-preserving refactors, doc /
-concept-doc edits, and mechanical config changes don't need a red test
-but still carry their normal verification. In doubt, treat it as
-behavior and write the red test.
+**Scope.** The red-*test* requirement applies to behavior changes —
+anything that alters what the running system does. Pure
+behavior-preserving refactors, doc / concept-doc edits, and mechanical
+config changes don't need a red test *file*. They are NOT exempt,
+however, from proving their gate flips: every `working` gate — test or
+not — is authored as a provable flip (see "Gate flip metadata: every
+gate is a provable flip" below). A migration's gate proves "relation
+does not exist → exists"; that is a flip even though it is not a test.
+In doubt, treat it as behavior and write the red test.
 
 **Fallback (rare).** If a test genuinely can't be written before the
 fix (e.g., it can't compile without a type the fix introduces), plan a
@@ -207,7 +211,102 @@ confirm it goes red, and restores the fix, capturing the red-then-green
 output. Prefer red-first; use this only when red-first is structurally
 impossible.
 
-## Acceptance: prove the assembled feature against the real product
+## Gate flip metadata: every gate is a provable flip
+
+A verification command is a real gate only if it is **red when the
+pass's work is absent and green when it is present**. `execute-plan`
+does not trust a gate on faith — it runs the gate before the work (it
+must be red for the *right reason*), runs it after (it must go green),
+and if the gate can never pass (a `docker compose run` that starts no
+server) or passes proving nothing (a green-from-birth test), it repairs
+the gate autonomously and records the repair as a divergence. For the
+executor to tell a *right-reason* red (the deliverable is genuinely
+absent) from an *infrastructure* red (the command can't even run its
+check), every `working` pass authors two lines alongside its
+`Verification:`:
+
+- **`Proves:`** — one line naming the *deliverable* a green gate
+  establishes ("both new tables and the `profile` column exist and are
+  queryable").
+- **`Red-when-absent:`** — what the command does on the work-absent
+  tree, and the failure signature that means *right-reason* red: a
+  failed assertion, a missing relation / column / symbol — NOT an
+  infrastructure error (connection refused, command not found, no such
+  service).
+
+Authoring `Red-when-absent` is itself a check on the gate: if the only
+failure you can describe for the work-absent tree is infrastructural
+("it won't connect"), the gate is mis-environed — fix the command, not
+the field. For a red task the `! <test>` line already encodes the flip
+(`Red-when-absent` is "the named test fails"); state it anyway for
+uniformity. `broken-intentional` passes have `Verification: none` and
+no flip metadata.
+
+Example — a non-test gate (a schema migration):
+
+```text
+**Verification:**     docker compose up -d postgres && docker compose exec -T postgres \
+                        psql -U zoning -d zoning -v ON_ERROR_STOP=1 \
+                        -c "SELECT FROM data_source_endpoints LIMIT 0; SELECT profile FROM data_sources LIMIT 0;"
+**Proves:**           the new table and the profile column exist and are queryable
+**Red-when-absent:**  before the migration, psql exits non-zero with
+                        `relation "data_source_endpoints" does not exist` — a missing
+                        relation (right-reason red), NOT a connection/command error
+```
+
+The `run`-vs-`exec` and `ON_ERROR_STOP` details matter: `docker compose
+run <svc> psql` starts a throwaway container with no server and can
+never connect (a false-negative gate), and a bare `psql -c "\d table"`
+exits 0 whether or not the table exists (a false-positive gate). A gate
+you cannot give a right-reason `Red-when-absent` is a defective gate —
+catch it here, at authoring time.
+
+**Run the gate; don't just describe it.** Authoring `Red-when-absent`
+from reasoning is necessary but not sufficient — a command can *read* as
+obviously correct and still be green on the work-absent tree, proving
+nothing. A described intent is not an observed failure. So for every
+`working` gate you can run at authoring time, **execute the verification
+command once against the current tree** (which lacks this plan's
+deliverables) and read its exit code:
+
+- **Non-zero for the right reason** (a failed assertion, a missing
+  relation / column / symbol, a compile error naming the absent
+  deliverable) → the red half is proven; write `Red-when-absent` from
+  what you actually saw.
+- **Exit 0 (green)** → the gate is a **false positive**: it passes while
+  the deliverable is absent, so it cannot be coupled to the work. Fix the
+  command until it fails for the right reason, then re-run. Never finalize
+  a gate you have not seen go red.
+
+Running it is the only way to catch the most common false positive, which
+reading the command never reveals: **a test-filter that matches nothing
+exits 0.** `swift test --filter X`, `go test -run X`, `pytest -k X`, and
+`jest -t X` all *succeed* when the filter selects zero tests, so a gate
+naming a not-yet-written suite is green from birth. (Same family as the
+`\d`/describe and `docker compose run` traps above — all read fine and
+fail only when run.) When the named test does not exist yet, gate on the
+test *actually running* — require a non-zero executed-test count, or
+assert the suite is listed before running it — so "zero tests matched" is
+a failure, not a pass.
+
+**What the dry-run proves, and what it leaves to `execute-plan`.** The
+current tree lacks *every* deliverable in the plan, so "is this gate
+green when its work is absent?" is answerable now for every `working`
+pass — and that false-positive catch is the whole defect class that
+otherwise survives to execution. What you cannot finish proving at
+authoring time is the *green* half (the gate passes once the work lands)
+or the exact right-reason red for a later pass whose work-absent baseline
+is "after earlier passes" rather than the current tree — a pass-N gate
+may go red against the current tree by failing to compile against
+pass-(N-1)'s absent code, which is fine (it is not green). Proving the
+full red→green flip against each pass's real work-absent baseline is
+`execute-plan`'s job; yours here is to ensure no gate reaches it already
+green. A gate whose infrastructure is not available at authoring time (a
+device, a service a task stands up, a script a later task writes) cannot
+be dry-run — note it and let `execute-plan`'s pre-flight be its first
+real run.
+
+## Acceptance: prove every user-outcome story against the real product
 
 Proof-first (above) gates each behavior change with its own red→green
 test. But a feature is more than the sum of its behavior changes: the
@@ -216,48 +315,67 @@ still never be wired together. Unit and integration tests prove the
 parts; nothing there proves the *assembled* feature does its job when the
 real product runs. The acceptance pass closes that gap.
 
-**If the spec states an acceptance scenario** (the use case in product
-terms — see `brainstorm`'s "The acceptance scenario"), the plan's **final
-pass is an acceptance pass** that turns it into an executable end-to-end
-gate:
+**The spec's user-outcome stories are the contract; the plan gates every
+one of them.** A spec opens with a complete, enumerated set of
+user-outcome stories (see `brainstorm`'s "User outcomes"). The plan's
+**final pass(es) are acceptance passes that carry one end-to-end gate per
+story** — not one gate for the spec. A spec with five stories has five
+acceptance gates; the run cannot complete until all five are green. One
+acceptance pass may host several story gates against a single
+assembled-product bring-up (cheaper than five separate boots), but every
+story gets its own gate and its own observable assertion. Dropping a
+story's gate, or merging it into another so its outcome is never
+asserted, is the exact hole that ships a promised capability unbuilt.
 
-- **End state `working`.** It is the last pass, so the plan ends on a
-  green acceptance gate.
-- **It boots the real assembled product** — the shipped binaries, the
-  real image, the real entry point a user would hit (HTTP route, CLI
-  verb, wire message) — and drives the spec's acceptance scenario to its
-  observable outcome. Not an in-process construction of components, not a
-  unit harness calling a handler directly: the thing a user actually
-  runs. A testcontainers-backed or subprocess-backed end-to-end test that
-  brings up the real artifact counts; an in-memory assembly of structs
-  does not.
-- **The value-delivering component is real, not stubbed.** If the feature
+**Cover each story's necessity closure.** A story's acceptance holds only
+if everything *necessary* for its user-outcome exists — including pieces
+the spec never spelled out (the proto wiring, the emit site, the
+registration that actually does something). The plan must contain tasks
+for that closure, not just the literally-named work: trace each story to
+the full set of changes without which its acceptance gate stays red, and
+plan all of them. The acceptance gate makes this self-checking — a story
+whose closure is incomplete cannot pass — but plan the closure up front
+rather than discovering it as a red gate mid-run.
+
+Each story's acceptance gate:
+
+- **End state `working`.** Acceptance is the last pass(es), so the plan
+  ends on green acceptance gates — every story's.
+- **Each gate boots the real assembled product** — the shipped binaries,
+  the real image, the real entry point a user would hit (HTTP route, CLI
+  verb, wire message) — and drives its story to the story's observable
+  outcome. Not an in-process construction of components, not a unit
+  harness calling a handler directly: the thing a user actually runs. A
+  testcontainers-backed or subprocess-backed end-to-end test that brings
+  up the real artifact counts; an in-memory assembly of structs does not.
+- **The value-delivering component is real, not stubbed.** If a story
   exists so that some executor, worker, sensor, or subscriber does real
-  work, the acceptance scenario wires a real one doing real work and
-  asserts the real effect. A canned-success stub at this gate defeats the
-  entire pass — it is the single thing this pass most exists to forbid.
-- **It is proof-first.** Ideally the feature's final integrating wiring is
-  the green task and the acceptance scenario is authored to FAIL before it
-  (`Verification: ! <acceptance command>`), flipping to pass once the
-  wiring lands — so the gate cannot pass against an unwired feature. Where
-  earlier passes already assembled everything and the scenario is green on
-  arrival, use the proof-first **revert-check fallback** (see above) to
-  prove it would go red without the feature's integrating edit.
-- **Verification names the acceptance command** — runnable and readable
-  from its output like every other gate, never a manual "bring up the
-  stack and look."
+  work, its acceptance gate wires a real one doing real work and asserts
+  the real effect. A canned-success stub at this gate defeats the entire
+  pass — it is the single thing this pass most exists to forbid.
+- **Every gate is proof-first.** Ideally a story's final integrating
+  wiring is the green task and its acceptance is authored to FAIL before
+  it (`Verification: ! <acceptance command>`), flipping to pass once the
+  wiring lands — so the gate cannot pass against an unwired story. Where
+  earlier passes already assembled everything and a story's gate is green
+  on arrival, use the proof-first **revert-check fallback** (see above) to
+  prove it would go red without the story's integrating edit.
+- **Each gate names its acceptance command** — runnable and readable from
+  its output like every other gate, never a manual "bring up the stack
+  and look."
 
-This pass is what makes "the product actually works" a machine-checked
+These passes are what make "the product actually works" a machine-checked
 gate instead of a `## Manual checks after completion` afterthought. As
-specs accumulate, their acceptance passes become the project's end-to-end
-regression coverage as a byproduct — committed tests, re-run by the normal
-suite — with nothing maintaining a separate corpus.
+specs accumulate, their per-story acceptance gates become the project's
+end-to-end regression coverage as a byproduct — committed tests, re-run by
+the normal suite — with nothing maintaining a separate corpus.
 
 **When a plan needs no acceptance pass.** Only when the spec states no
-acceptance scenario (a pure refactor, docs / concept-doc-only work, an
-internal mechanism with no user-reachable surface). If the spec states an
-acceptance scenario, the plan must carry the acceptance pass; the planner
-does not get to drop it or downgrade it to a unit test.
+user-outcome stories (a pure refactor, docs / concept-doc-only work, an
+internal mechanism with no user-reachable surface). If the spec states
+any story, the plan must carry an acceptance gate for **each** one; the
+planner does not get to drop a story, merge its gate away, or downgrade it
+to a unit test.
 
 ## Autonomous Execution Required
 
@@ -304,7 +422,7 @@ Map out files before defining tasks. Design units with clear boundaries. Each fi
 
 Most passes are `working`. `broken-intentional` is for migrations and replacements where the half-state is unavoidable: "delete old auth code → add new auth code → flip callers → restore tests" is naturally 3–4 passes with the middle two non-working. Do not use `broken-intentional` to avoid writing a verification command; use it only when the codebase genuinely cannot pass its checks at the pass boundary.
 
-**Verification:** A `working` pass has a verification command the executor runs between passes — a test, typecheck, lint, or targeted script. The command's exit code is the gate. A `broken-intentional` pass has `Verification: none` because the codebase isn't expected to verify cleanly. A verification may *assert failure*: a red-test gate `! <the exact test>` exits 0 only when the named test fails, and is a legitimate `working` verification for a red task (see "Proof-first").
+**Verification:** A `working` pass has a verification command the executor runs between passes — a test, typecheck, lint, or targeted script. The command's exit code is the gate. A `broken-intentional` pass has `Verification: none` because the codebase isn't expected to verify cleanly. A verification may *assert failure*: a red-test gate `! <the exact test>` exits 0 only when the named test fails, and is a legitimate `working` verification for a red task (see "Proof-first"). Every `working` gate is also authored with `Proves:` and `Red-when-absent:` so the executor can validate it flips red→green around the work (see "Gate flip metadata: every gate is a provable flip").
 
 ## Task granularity (within a pass)
 
@@ -374,6 +492,8 @@ Tasks live under passes. Each pass has a header with goal/end-state/verification
 **Scope:** Tasks 4–6
 **End state:** working
 **Verification:** `go test ./internal/auth/...`
+**Proves:** the new session module exists and its tests pass
+**Red-when-absent:** before this pass the package fails to build / has no session tests (a compile or test failure, not an environment error)
 
 ### Task 4: ...
 ```
@@ -463,24 +583,65 @@ Agent (general-purpose):
     change with no red task, a shape-only "test", or a blanket-suite
     verification is a blocking gap — that is exactly the defect that
     lets a half-wired feature pass as done.
-  - Acceptance-pass compliance (blocking). If the spec states an
-    acceptance scenario, the plan's final pass must be an acceptance
-    pass that (a) boots the real assembled product / shipped entry
-    point — not an in-process construction of components or a unit
-    harness calling a handler directly; (b) drives the spec's
-    acceptance scenario to its real observable outcome; (c) keeps the
-    value-delivering component real — a real executor / worker /
-    sensor / subscriber doing real work; a stub or canned-success
-    substitute at this gate is a blocking gap; (d) is gated
-    proof-first (red-then-green, or the revert-check fallback) so the
-    gate cannot pass against an unwired feature; (e) names a runnable
-    acceptance command, not a manual check. A spec with a stated
-    acceptance scenario but no acceptance pass — or an acceptance pass
-    that stubs the very component the feature exists to exercise, or
-    that only assembles components in-process — is a blocking gap:
-    that is exactly the defect that lets every unit test pass while
-    the assembled product does not work. A spec with no acceptance
-    scenario (pure refactor / docs-only / no user-observable change)
+  - Gate flip metadata (blocking for `working` passes). Every `working`
+    pass states `Proves:` and `Red-when-absent:` alongside its
+    `Verification:` (see "Gate flip metadata: every gate is a provable
+    flip"). Check that: (a) both are present; (b) `Red-when-absent` names
+    a *right-reason* failure — a failed assertion, a missing relation /
+    column / symbol — NOT an infrastructure error (connection refused,
+    command not found, no such service); if the only failure the author
+    can name is infrastructural, the gate is mis-environed → flag it;
+    (c) the `Verification` command is not a known-defective shape:
+    `docker compose run <service> <client-cmd>` (starts no server — use
+    `exec` into the running service), a describe / `\d` that exits 0
+    whether or not the object exists (use a strict query with
+    `ON_ERROR_STOP=1` or equivalent), a test-filter that exits 0 when it
+    selects nothing — `swift test --filter X`, `go test -run X`,
+    `pytest -k X`, `jest -t X` all *pass* when zero tests match, so a
+    filter naming a not-yet-written suite is green from birth (the gate
+    must instead require the test to actually run: a non-zero executed
+    count, or list-the-suite-then-run) — or a blanket `go test ./...` /
+    `npm test` any green test satisfies; (d) **actually run each
+    `working` gate's `Verification` command against the current tree and
+    read its exit code** — do not judge the gate by reading it alone. The
+    current tree lacks the plan's deliverables, so a gate that exits 0
+    here is a false positive (it proves nothing about work that does not
+    yet exist) and is blocking no matter how correct the command reads;
+    a non-zero exit for a right reason (failed assertion / missing
+    symbol / compile error naming the absent deliverable) is fine, while
+    a non-zero exit only from an infrastructure error is mis-environed →
+    flag it. Skip the run only for a gate whose infrastructure genuinely
+    is not available at authoring time (a device, a service the plan
+    stands up, a script a task writes) — and note which gates you could
+    not run. A `working` gate missing its flip metadata, carrying an
+    infrastructure-only `Red-when-absent`, using a known-defective
+    command, or exiting 0 on the work-absent tree is a blocking gap —
+    `execute-plan` can repair some of these at runtime, but a gate proven
+    red at authoring time is cheaper and never burns a run.
+  - Acceptance-pass compliance (blocking). If the spec states
+    user-outcome stories, the plan's final pass(es) must carry **one
+    acceptance gate per story** — not one gate for the whole spec.
+    Check (1) coverage: every story has its own acceptance gate that
+    asserts that story's observable outcome; a story with no gate, or
+    whose gate is merged into another so its outcome is never
+    asserted, is a blocking gap — that is exactly how a promised
+    capability ships unbuilt. Then, for each gate: (a) it boots the
+    real assembled product / shipped entry point — not an in-process
+    construction of components or a unit harness calling a handler
+    directly; (b) it drives its story to the story's real observable
+    outcome; (c) it keeps the value-delivering component real — a real
+    executor / worker / sensor / subscriber doing real work; a stub or
+    canned-success substitute at this gate is a blocking gap; (d) it is
+    gated proof-first (red-then-green, or the revert-check fallback) so
+    it cannot pass against an unwired story; (e) it names a runnable
+    acceptance command, not a manual check. Also check **necessity
+    closure**: for each story, the plan contains the tasks without
+    which its acceptance gate could not go green — including pieces the
+    spec did not literally name (proto wiring, emit sites, the
+    registration that does real work). A story whose closure is
+    under-planned will stall at a red acceptance gate during execution;
+    flag a visibly incomplete closure here. A spec with no user-outcome
+    stories (pure refactor / docs-only / no user-observable change)
     correctly has no acceptance pass; do not flag its absence there.
   - Task decomposition (one discrete action plus verification per
     step)
@@ -523,9 +684,10 @@ Agent (general-purpose):
     `broken-intentional`. For a spec that states an acceptance
     scenario, this final `working` pass is the acceptance pass (see
     "Acceptance-pass compliance" above).
-  - `working` passes have a non-empty Verification command the
-    executor can run between passes. `broken-intentional` passes
-    have `Verification: none`. Flag mismatches.
+  - `working` passes have a non-empty Verification command AND the
+    `Proves:` / `Red-when-absent:` flip metadata (see "Gate flip
+    metadata" under Plan quality checks). `broken-intentional` passes
+    have `Verification: none` and no flip metadata. Flag mismatches.
   - Adjacent passes that touch the same handful of files in
     continuous order with no meaningful boundary — consider
     merging. Passes that enumerate 10+ tasks or scatter across

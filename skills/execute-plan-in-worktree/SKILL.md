@@ -230,10 +230,23 @@ If the user is unsure whether they want isolation, they should use
     the plan path. Because the session is now in the worktree (step
     8), the plan's original-relative path resolves against the
     worktree — the path string is identical either way. From here,
-    `execute-plan` owns
-    the run: dispatching pass implementers, gating verification,
-    running the divergence audit, archiving inside the worktree. Do
-    not shadow or replicate any of its behavior.
+    `execute-plan` owns the run: it drives the plan pass by pass as a
+    background `Workflow` (dispatching pass implementers, flip-gating
+    verification, repairing defective gates, running the divergence
+    audit, archiving inside the worktree). Do not shadow or replicate
+    any of its behavior.
+
+    **Worktree-locality of the workflow.** `execute-plan` executes as a
+    background `Workflow` whose dispatched agents run shell commands —
+    those agents MUST operate in the worktree, not the original
+    checkout, or the isolation this skill exists for is lost. The step-8
+    switch must still be in effect when `execute-plan` launches the
+    Workflow. After the workflow starts, confirm its agents are in the
+    worktree (e.g. the first agent's `git rev-parse --show-toplevel`
+    resolves to the worktree path); if the harness runs background
+    workflow agents from the original checkout regardless of the session
+    switch, stop and surface it — do not let the run mutate the original
+    tree.
 
 ## Rules
 

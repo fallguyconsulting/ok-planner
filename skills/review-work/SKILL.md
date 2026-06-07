@@ -58,6 +58,17 @@ Agent (general-purpose):
   - State integrity: can we get stuck in a state? Double-execute? Skip steps?
   - Load-bearing properties upheld: name the properties the spec/plan depend on — durability, completeness, atomicity, ordering, idempotency, no-data-loss, "this record is canonical/authoritative," and the like — and verify the code actually guarantees each one. The dangerous failure is code that works on the happy path but silently trades such a property away for a local optimization (e.g. an audit write made asynchronous-and-droppable to protect request latency, quietly downgrading a record the spec called authoritative). For each property ask: does the implementation still guarantee it, or only under light load / the happy path? If the spec relied on a property the code no longer guarantees, that is an issue even when nothing appears "broken" — review the property, not just the line-by-line diff.
   - Test coverage: do tests verify real behavior? Any gaps?
+  - Completeness against the spec's user-outcome stories: if the
+    spec opens with user-outcome stories, every one must be actually
+    delivered — its real user-outcome observable, not merely its
+    mechanism present. Flag any undershoot: a handler / route / class
+    registered or declared but doing nothing, an error class or event
+    declared but never emitted, a config flag or field accepted but
+    ignored, a stub / no-op standing in for a promised outcome, or a
+    `TODO` / "out of scope" / "deferred" / "later pass" marker on a
+    story's path. A promised story whose outcome is not really
+    delivered is a blocking issue even when every unit test is green —
+    that is the exact way a spec'd feature ships unbuilt.
   - Dead code, unused imports, stale comments
   - Anything that deviates from requirements
   - Pre-existing issues: if you find bugs, stale references, or inconsistencies in any file you read — even if they predate the current changes — report them. If an issue points to problems in files outside the initial scope, follow the trail and report those too.
