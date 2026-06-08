@@ -5,7 +5,7 @@ description: "Affirm the .ok-planner/ artifact layout: create directories if abs
 
 # Affirm ok-planner artifact layout
 
-Ensures the `.ok-planner/` directory tree exists at the project root and that the embedded `.ok-planner/CLAUDE.md` matches the current template. **Unified semantics:** create what's absent, update what's present and out of date. Idempotent — re-running on a project that's already in compliance is a silent no-op.
+Ensures the `.ok-planner/` directory tree exists at the project root and that the embedded `.ok-planner/CLAUDE.md` matches the current template. **Unified semantics:** create what's absent, overwrite `CLAUDE.md` wholesale with the current template. Idempotent — re-running on a project that's already in compliance produces no change.
 
 ## Why this skill exists
 
@@ -16,7 +16,7 @@ ok-planner artifacts split into two kinds with different rules:
 
 Putting both under `.ok-planner/` with an embedded `CLAUDE.md` signals to any agent that wanders in: this is the planner's directory, treat it correctly, don't pull the records into context unprompted or "fix" them, and don't edit the design docs outside the plan pipeline.
 
-The CLAUDE.md template evolves alongside the skills. `affirm` keeps the embedded copy aligned with the current template by overwriting it whenever it differs. The file is skill-owned boilerplate — `.ok-planner/` is the planner's own folder — so there are no user customizations to preserve and no confirmation to ask for.
+The CLAUDE.md template evolves alongside the skills. `affirm` keeps the embedded copy aligned with the current template by overwriting it wholesale on every run. The file is skill-owned boilerplate — `.ok-planner/` is the planner's own folder — so there are no user customizations to preserve and no confirmation to ask for.
 
 ## When invoked
 
@@ -69,15 +69,13 @@ Most subdirectories are project records kept out of context by default — commi
 
    Use `mkdir -p` so existing directories are left untouched.
 
-3. **Affirm `.ok-planner/CLAUDE.md`.** This file is skill-owned boilerplate, not user content. `.ok-planner/` is the planner's own folder and the embedded `CLAUDE.md` is regenerated from the template below — users are not expected to edit it, so there is nothing to preserve. Affirm simply keeps it current:
+3. **Affirm `.ok-planner/CLAUDE.md`.** This file is skill-owned boilerplate, not user content. `.ok-planner/` is the planner's own folder and the embedded `CLAUDE.md` is regenerated from the template below — users are not expected to edit it, so there is nothing to preserve and nothing to merge.
 
-   a. Generate the current template content from the embedded copy below (Process step 4).
+   **Always overwrite the whole file in a single write.** Write the complete template (Process step 4) to `.ok-planner/CLAUDE.md` in one whole-file write, unconditionally — whether or not the file already exists, and regardless of how its current contents differ.
 
-   b. If `.ok-planner/CLAUDE.md` does not exist: write the template. Report "Wrote `.ok-planner/CLAUDE.md`."
+   **Do not** read the existing file first, **do not** diff it against the template, and **do not** bring it up to date with line-by-line edits. There is nothing to preserve, so reconciling the old contents against the new is pure wasted work — reading both copies and editing inline is exactly the behavior this step forbids. One write of the full template replaces whatever was there.
 
-   c. If it exists and matches the current template byte-for-byte: silent no-op for the file (the dir-affirm in step 2 may still have a one-line report).
-
-   d. If it exists and differs from the current template — for any reason (version drift, or a stray local edit): **overwrite it with the template. No diff, no prompt, no confirmation.** Report "Refreshed `.ok-planner/CLAUDE.md` to the current template." The template is authoritative; the file is not the user's to customize, so there is nothing to weigh and no question to ask.
+   The repeat is cheap and safe: if the file was already current, writing identical bytes is a no-op at the git level (the content hash is unchanged, so `git status` shows nothing). That is why the write is unconditional rather than guarded behind a comparison — the comparison is what tempts an agent into reading both versions and editing line by line, and it buys nothing here. No diff, no prompt, no confirmation — the template is authoritative and the file is not the user's to customize.
 
    This behavior is identical whether affirm was invoked by the user via `/affirm` or by another skill mid-pipeline — it never interrupts a run to ask about this file.
 
@@ -346,16 +344,15 @@ Most subdirectories are project records kept out of context by default — commi
      `/brainstorm` when it produces a spec from them (out of context by default)
    ````
 
-5. **Report back** to the calling skill (or user, if invoked directly) with one short line stating what was created vs. already present vs. updated. Do not produce a long explanation.
+5. **Report back** to the calling skill (or user, if invoked directly) with one short line stating which directories were created vs. already present, plus that `CLAUDE.md` was written from the current template. Do not produce a long explanation. Do not claim to have detected drift or diffed the file — the write is unconditional, so there is nothing to report about whether the contents changed.
 
 ## Reporting
 
 Keep output minimal. Examples:
 
-- First run: "Affirmed `.ok-planner/` layout (created dirs + CLAUDE.md)."
-- Already in compliance: "`.ok-planner/` layout already in compliance."
-- Partial: "Created `.ok-planner/sketches/` and `.ok-planner/history/`; rest already present."
-- CLAUDE.md drift (overwritten): "Refreshed `.ok-planner/CLAUDE.md` to the current template."
+- First run: "Affirmed `.ok-planner/` layout (created dirs, wrote CLAUDE.md)."
+- Re-run, dirs already there: "Affirmed `.ok-planner/` layout (dirs already present, CLAUDE.md written from template)."
+- Partial: "Created `.ok-planner/sketches/` and `.ok-planner/history/`; other dirs already present; CLAUDE.md written from template."
 
 The calling skill should continue immediately after this skill reports.
 
