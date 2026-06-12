@@ -84,19 +84,20 @@ Agent (general-purpose):
   spec/plan doesn't address, raise it as an issue against the
   spec/plan, not against the design docs.
 
-  ### Divergence report (if present)
+  ### Completion report (if present)
   If the plan was executed by `ok-planner:execute-plan`, a
-  divergence report may exist at
-  `.ok-planner/plans/<plan>-divergences.md` (or its archived
+  completion report may exist at
+  `.ok-planner/plans/<plan>-completion-report.md` (or its archived
   equivalent under `history/plans/`). If present, read it for
-  context on creative choices the implementer made. A divergence
-  by itself is not an issue — form your findings from the code.
-  A divergence that produces working, safe code is fine; one that
-  introduces a bug, regression, or invariant violation is an
-  issue. So is one that silently trades away a property the
-  spec/plan relied on (durability, completeness, atomicity,
-  ordering, no-data-loss) — even if the code "works"; flag it and
-  name the property that was spent.
+  context on the three-section closing walk — proofs working,
+  decisions kept, decisions diverged. A divergence by itself is
+  not an issue — form your findings from the code. A divergence
+  that produces working, safe code is fine; one that introduces a
+  bug, regression, or invariant violation is an issue. So is one
+  that silently trades away a property the spec/plan relied on
+  (durability, completeness, atomicity, ordering, no-data-loss) —
+  even if the code "works"; flag it and name the property that
+  was spent.
 
   ### Output Format
 

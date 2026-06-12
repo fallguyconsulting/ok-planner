@@ -53,9 +53,13 @@ record them, do not resolve them.
   runs against the expanded set).
 - After major architectural work that materially changed the concept
   surface (new noun, retired noun, sharpened boundary), if and only if
-  `refine-design` has not yet produced human-edited concepts — once
-  there are refined concepts, use `/merge` instead of re-running
-  discovery against the same `concepts/` directory.
+  `refine-design` has not yet produced human-edited concepts. Once
+  there are refined concepts, do not re-run discovery against the
+  same `concepts/` directory — the skill aborts to avoid clobbering
+  them. Keep the design model aligned with the code through the spec
+  pipeline (`/brainstorm` → `/write-plan` → `/execute-plan`), which
+  changes docs and code as one unit; if a recent merge introduced
+  inconsistencies, run `/merge` to surface them.
 
 ## Where the log lives
 
@@ -63,6 +67,8 @@ record them, do not resolve them.
 .ok-planner/design/
   _discover/        — phase 1 scaffolding (raw thorough descriptions)
   concepts/         — phase 2 initial concept docs (one concept per file)
+  stories/          — phase 2 initial story docs (one story per file)
+  decisions/        — phase 2 initial decision docs (one decision per file)
   tensions/         — phase 2 tensions / muddiness catalog
   review-notes.md   — agent-confessed uncertainty for the human session
 ```
@@ -70,17 +76,18 @@ record them, do not resolve them.
 - `_discover/` is **scaffolding**, not the artifact. It is wide and
   detailed and may include redundancy. It is the trail of what was
   observed; `refine-design` may eventually archive it.
-- `concepts/` and `tensions/` are the durable outputs. They are still
-  **as-is**, not prescriptive — `refine-design` picks tensions with
-  the user, writes a spec covering the resolutions plus the code
-  reconciliation, and then `execute-plan` mutates the concept files
-  alongside the code changes when the plan runs.
+- `concepts/`, `stories/`, `decisions/`, and `tensions/` are the
+  durable outputs. They are still **as-is**, not prescriptive —
+  `refine-design` picks tensions with the user, writes a spec
+  covering the resolutions plus the code reconciliation, and then
+  `execute-plan` mutates the design files alongside the code
+  changes when the plan runs.
 - `review-notes.md` is the agent's catalog of its own uncertainty
   during this run: judgment calls it had to make, places it wasn't
-  sure if it identified the right concept, areas where the codebase
-  was hard to read. Distinct from `tensions/` — tensions are about the
-  codebase being muddy; review notes are about the artifact being
-  uncertain.
+  sure if it identified the right concept / story / decision, areas
+  where the codebase was hard to read. Distinct from `tensions/` —
+  tensions are about the codebase being muddy; review notes are
+  about the artifact being uncertain.
 
 ## Process
 
@@ -99,16 +106,20 @@ areas, then re-runs the extractor and reviewer for the affected
 concepts only. Capped at one back-edge per skill invocation.
 
 1. Run `ok-planner:affirm` to ensure `.ok-planner/` layout exists.
-2. Create `.ok-planner/design/_discover/`, `.ok-planner/design/concepts/`,
-   and `.ok-planner/design/tensions/` if absent.
+2. Create `.ok-planner/design/_discover/`,
+   `.ok-planner/design/concepts/`, `.ok-planner/design/stories/`,
+   `.ok-planner/design/decisions/`, and
+   `.ok-planner/design/tensions/` if absent.
 3. Detect state:
    - Empty `_discover/` → phase 1 starts from scratch.
    - Non-empty `_discover/` → phase 1 expands existing entries and
      adds new ones (idempotent).
-   - Non-empty `concepts/` or `tensions/` → abort. Tell the user to
-     either delete `concepts/` and `tensions/` (full rerun) or run
-     `/merge` (drift detection against refined design). Do not
-     silently overwrite human-edited concept files.
+   - Non-empty `concepts/`, `stories/`, `decisions/`, or
+     `tensions/` → abort. Tell the user to either delete the
+     non-empty durable directories (full rerun) or, if the abort
+     was triggered after a recent merge, run `/merge` to surface
+     merge-introduced inconsistencies. Do not silently overwrite
+     human-edited artifact files.
 4. **Phase 1 (Discovery):**
    a. Dispatch the discoverer subagent with the Phase 1 Discoverer
       Prompt. It writes/expands `_discover/<slug>.md` files.
@@ -121,10 +132,10 @@ concepts only. Capped at one back-edge per skill invocation.
       (b). Cap at 3 cycles total (initial + 2 fix passes).
    d. If still `Issues Found` after cycle 3: record each unresolved
       issue in `review-notes.md` under `## Phase 1 unresolved`.
-5. **Phase 2 (Concept extraction + tension identification):**
+5. **Phase 2 (Concept / story / decision extraction + tension identification):**
    a. Dispatch the extractor subagent with the Phase 2 Extractor
-      Prompt. It writes `concepts/<slug>.md` and
-      `tensions/<slug>.md` files.
+      Prompt. It writes `concepts/<slug>.md`, `stories/<slug>.md`,
+      `decisions/<slug>.md`, and `tensions/<slug>.md` files.
    b. Dispatch the extraction-reviewer subagent with the Phase 2
       Reviewer Prompt. It produces a structured report and, on its
       final pass (whether approved or capped), appends its
@@ -144,13 +155,15 @@ concepts only. Capped at one back-edge per skill invocation.
         It expands the named `_discover/` entries (or adds new ones)
         with deeper code discussion for just the listed areas.
      b. Dispatch the focused-extractor subagent with the Back-Edge
-        Extractor Prompt. It updates the affected `concepts/` files
-        in place, adds tensions surfaced by the new material, and
-        (only when the request explicitly names a new concept) adds
-        new `concepts/<slug>.md` files.
+        Extractor Prompt. It updates the affected `concepts/`,
+        `stories/`, and `decisions/` files in place, adds tensions
+        surfaced by the new material, and (only when the request
+        explicitly names a new artifact) adds new
+        `concepts/<slug>.md`, `stories/<slug>.md`, or
+        `decisions/<slug>.md` files.
      c. Dispatch the phase 2 reviewer one more time (using the same
         Phase 2 Reviewer Prompt) with scope restricted to the
-        concepts affected by the back-edge. The reviewer appends a
+        artifacts affected by the back-edge. The reviewer appends a
         `## Phase 2 review notes (back-edge)` section to
         `review-notes.md` covering any residual uncertainty about
         the back-edge work.
@@ -158,40 +171,50 @@ concepts only. Capped at one back-edge per skill invocation.
      identifies further thin-discovery needs, they go to
      `review-notes.md` under `## Back-edge residual thinness` for
      the human — do not loop.
-7. **Regenerate the concept catalog summary.** Read every file in
-   `.ok-planner/design/concepts/` (skipping `concepts/_merged/` if
-   present). For each, extract the slug (frontmatter `concept:`),
-   the aliases (frontmatter `aliases:`), and the first sentence of
-   the `## What it is` section. Write
-   `.ok-planner/design/concepts.md` per the format below. This is
-   the one-shot-readable TOC consulted by skills that read the
-   design docs (brainstorm, refine-design, merge, review-holistic);
-   it lets agents know what concepts exist without reading every
-   full concept file. Generated; agents should not edit it by hand.
+7. **Regenerate the design catalog summaries.** For each of
+   `concepts/`, `stories/`, and `decisions/`, read every file
+   (skipping `_merged/` subdirectories if present) and produce a
+   one-shot-readable TOC alongside it:
 
-   Format:
+   - `concepts/` → `concepts.md` (entries: slug, optional aliases,
+     first sentence of `## What it is`)
+   - `stories/` → `stories.md` (entries: slug, one-line summary
+     drawn from the story's `As ... I can ...` statement)
+   - `decisions/` → `decisions.md` (entries: slug, one-line summary
+     drawn from the decision's `Choice:` line)
+
+   These TOCs are the one-shot-readable catalogs consulted by
+   skills that read the design docs (brainstorm, refine-design,
+   merge, review-holistic); they let agents know what artifacts
+   exist without reading every full file. Generated; agents
+   should not edit them by hand.
+
+   Format (use the same shape for all three):
    ```markdown
-   # Concept catalog (auto-generated)
+   # <Concept|Story|Decision> catalog (auto-generated)
 
-   Read first. Then either grep for `@concept: <slug>` annotations
-   in the code under review, or read `concepts/<slug>.md` for the
-   full definition. Generated by `discover-design` and refreshed
-   by `execute-plan` when a plan touches `concepts/`. Do not edit
-   by hand — changes will be overwritten.
+   Read first. Then either grep for the matching annotation
+   (`@concept:` / `@story:` / `@decision:`) in the code under
+   review, or read `<dir>/<slug>.md` for the full body. Generated
+   by `discover-design` and refreshed by `execute-plan` when a
+   plan touches the catalog. Do not edit by hand — changes will
+   be overwritten.
 
-   ## Concepts
+   ## <Concepts|Stories|Decisions>
 
-   - `<slug>` — <one-sentence definition, ≤120 chars>
-   - `<slug>` (aliases: <comma-list>) — <one-sentence definition>
+   - `<slug>` — <one-sentence summary, ≤120 chars>
+   - `<slug>` (aliases: <comma-list>) — <one-sentence summary>
    ```
 
    Sort entries alphabetically by slug. Omit the `(aliases: ...)`
-   parenthetical when there are no aliases.
+   parenthetical when there are no aliases. Aliases apply mainly
+   to concepts; stories and decisions typically have none.
 
-8. Final report to the user: number of `_discover/` entries, number
-   of concepts, number of tensions grouped by category, count of
-   review-notes entries, whether a back-edge ran, and the next-step
-   pointer (run `/refine-design`).
+8. Final report to the user: number of `_discover/` entries,
+   number of concepts, number of stories, number of decisions,
+   number of tensions grouped by category, count of review-notes
+   entries, whether a back-edge ran, and the next-step pointer
+   (run `/refine-design`).
 
 The skill does not prompt the user mid-run. The final report is the
 only thing the user sees during this skill's execution.
@@ -216,10 +239,11 @@ the agent that writes and the agent that checks.
 
 ### {{SELF-CONTAINMENT-RULE}}
 
-Concept body is self-contained. The design owns the definition; code
-references it via `@concept:` annotations. A refactor that moves files
-around does not invalidate a concept, and an external doc that moves to
-another repo does not orphan one. Citations in concept body are
+Concept, story, and decision bodies are self-contained. The design
+owns the definition; code references it via `@concept:`, `@story:`,
+and `@decision:` annotations. A refactor that moves files around
+does not invalidate an artifact, and an external doc that moves to
+another repo does not orphan one. Citations in artifact body are
 restricted to forms that survive the codebase moving.
 
 **The rule applies to frontmatter as well as body.** A `references:`
@@ -227,25 +251,25 @@ frontmatter field that lists `_discover/...` artifacts, spec paths,
 sketch paths, or any other file-form citation is the same durability
 problem the rule exists to prevent — those paths rot when the
 scaffolding is retired, when specs are archived, or when the repo is
-reorganized. Once a concept is baked, the lineage that produced it
-lives in the `_discover/` scaffolding (as history) and in the body's
-dated Notes entries (which cite specs by slug); frontmatter is
-restricted to slug-form metadata only: `concept:` / `tension:`,
-`status:`, `aliases:` (list of names), and for tensions `category:`
-and `affects:` (list of concept slugs). Path-form `references:` does
-not belong in concept or tension frontmatter; if a `discover-design`
-or earlier-version run wrote one, strip it.
+reorganized. Once an artifact is baked, the lineage that produced it
+lives in the `_discover/` scaffolding (as history) and in the git
+history of the artifact file itself; the artifact body and frontmatter
+carry no lineage. Frontmatter is restricted to slug-form metadata
+only: `concept:` / `story:` / `decision:` / `tension:`, `status:`,
+`aliases:` (list of names), and for tensions `category:` and
+`affects:` (list of slugs). Path-form `references:` does not belong
+in any artifact's frontmatter; if a `discover-design` or
+earlier-version run wrote one, strip it.
 
-**Allowed in concept body:**
-- Other concept slugs: `see also: claim-handle`, `concept:claim-handle`.
+**Allowed in artifact body** (concepts / stories / decisions):
+- Other artifact slugs across catalogs: `see also: claim-handle`,
+  `concept:claim-handle`, `story:claim-co-holder`,
+  `decision:persistence`.
 - Annotation IDs the codebase uses (e.g. `@blessed-invariant: 4`,
-  `@agent-contract: X`) — the ID is stable across file moves; the file
-  path is not.
-- Spec slugs in dated Notes entries (e.g.
-  `spec:2026-05-15-data-platform-extensions-design`).
-- Dates.
+  `@agent-contract: X`) — the ID is stable across file moves; the
+  file path is not.
 
-**Disallowed in concept body:**
+**Disallowed in artifact body** (concepts / stories / decisions):
 - File or directory paths (`foo/bar.go`, `pkg:foo/bar/baz`,
   `services/widget/`, etc.) — bare or in any citation form, in-tree or
   in a sibling repo.
@@ -254,16 +278,17 @@ or earlier-version run wrote one, strip it.
 - References to external documentation (`docs/...`, READMEs, CHANGELOG,
   sibling-repo paths).
 - Quoted code, quoted lint-config allowlists, or quoted external prose.
-  If a property matters, state it as a property of the concept; the
+  If a property matters, state it as a property of the artifact; the
   code is responsible for enforcing it.
-- "Owns / Does NOT own" sections that name code paths. Boundaries is
-  the in-vs-out section, and it names neighbor concepts by slug.
+- "Owns / Does NOT own" sections that name code paths. Concept
+  Boundaries is the in-vs-out section, and it names neighbor concepts
+  by slug.
 
-If a concept feels like it can't say what it needs to without naming a
-file, that's either (a) a hint that the concept's boundary is muddier
-than the current text claims — file a tension — or (b) material that
-belongs in the `_discover/` scaffolding (Code surface section), not in
-the concept body.
+If an artifact feels like it can't say what it needs to without naming
+a file, that's either (a) a hint that the artifact's boundary is
+muddier than the current text claims — file a tension — or (b)
+material that belongs in the `_discover/` scaffolding (Code surface
+section), not in the artifact body.
 
 ### {{TENSION-SURFACE-RULE}}
 
@@ -536,19 +561,29 @@ Agent (general-purpose):
 
 ```
 Agent (general-purpose):
-  ## Discover-Design Phase 2: Concept Extraction & Tension Identification
+  ## Discover-Design Phase 2: Concept / Story / Decision Extraction & Tension Identification
 
   ### Goal
 
   Read the `_discover/` corpus and produce:
   1. One concept file per load-bearing noun, under
      `.ok-planner/design/concepts/`.
-  2. One tension file per case where the as-is design is sloppy,
+  2. One story file per user-observable outcome the running product
+     already delivers, under `.ok-planner/design/stories/`.
+  3. One decision file per technical choice the project has clearly
+     made (one shape over an identifiable alternative), under
+     `.ok-planner/design/decisions/`.
+  4. One tension file per case where the as-is design is sloppy,
      unspecified, unclear, overloaded, conflicting, or vestigial,
      under `.ok-planner/design/tensions/`.
 
-  This is still as-is. Do NOT propose resolutions to tensions.
-  Document them; `refine-design` will resolve them.
+  This is still as-is. Stories describe what the product does
+  today; decisions describe what choices have been made. Do NOT
+  propose resolutions to tensions, do NOT invent stories the
+  product does not yet deliver, and do NOT propose decisions the
+  project has not yet made. Document the as-is;
+  `refine-design` and future `brainstorm`/`execute-plan` runs
+  evolve the model.
 
   ### Inputs
 
@@ -615,22 +650,151 @@ Agent (general-purpose):
   (`@blessed-invariant`, `@agent-contract`) belong here — list
   them with their IDs if the codebase numbers them.>
 
-  ## Aliases and historical names
+  ## Aliases
 
-  <Names this concept has gone by, with whether each is current,
-  deprecated, or transitional. A live alias is a tension
-  candidate — produce a corresponding tensions/ entry.>
-
-  ## Open within this concept
-
-  <Specific things about this concept the as-is design does not
-  resolve. Each should also have a corresponding tensions/
-  entry.>
+  <Other names this concept currently goes by in code or prose
+  today. List only names that actually appear in the live
+  codebase or live prose — not retired names, not names
+  someone used to use. If multiple live names point at the
+  same concept, that is itself a tension candidate — produce a
+  corresponding tensions/ entry. Drop this section entirely if
+  there are no live aliases.>
   ```
 
-  ### Concept self-containment rule
+  ### Self-containment rule (concepts, stories, decisions)
 
   {{SELF-CONTAINMENT-RULE}}
+
+  ### What is a story?
+
+  A user-outcome the running product already delivers — a
+  capability a user can observe by driving the assembled product.
+  The bar is: a reasonable user (or a third party watching one)
+  can see this happen, not by reading code but by using the
+  product. Examples (concretely project-dependent):
+  - "submit a claim and see it persisted"
+  - "create a widget and see its id"
+  - "receive the daily digest at 09:00 UTC"
+
+  **The delivery surface is not part of the story.** Which
+  surface a user reaches through — CLI verb, HTTP route, wire
+  message, scheduled job, UI — is a technical choice and lives
+  in `decisions/`, not in the story. The story names the
+  capability and what the user observes; the decision names how
+  the product exposes it. Two stories that describe the same
+  user-outcome through different surfaces are one story (the
+  surface is the decision's territory).
+
+  Discover stories from:
+  - Public surfaces the product exposes: CLI verbs, HTTP routes,
+    wire messages, scheduled jobs, subscribed events. (These
+    tell you a story is there; the surface itself goes into
+    `decisions/`, the user-outcome it serves into `stories/`.)
+  - End-to-end tests that drive the assembled product and
+    observe outcomes (these often name the story directly).
+  - README / docs sections describing what the product does for
+    its users.
+  - Spec history under `.ok-planner/history/specs/` if present —
+    every shipped spec carried stories that now describe what
+    the product does.
+
+  ### Story template
+
+  Write each story to `.ok-planner/design/stories/<slug>.md`.
+
+  ```markdown
+  ---
+  story: <slug>
+  status: as-is
+  ---
+
+  # <Short story title>
+
+  ## Story
+
+  As <role>, I can <capability>, so that <business value>.
+
+  ## Acceptance
+
+  <What the user does, in their terms> → <what they observe
+  happening>. The component that delivers the value is real (not
+  stubbed) — name it. The surface the user reaches through is a
+  technical decision (captured in `decisions/`), not part of the
+  story.
+
+  ## Falsifier
+
+  <The user-observable absence that would prove this story is NOT
+  delivered: the user takes the action and the promised result
+  never appears; the result appears but is unrelated to their
+  input; the result looks real but the underlying state is
+  synthetic (a stubbed or canned value-delivering component).>
+
+  ## Proof
+
+  <Demo | example | proof | all-of-the-above> — <what the proof
+  must exhibit to a third party so they would conclude the story
+  is delivered>.
+  ```
+
+  ### What is a decision?
+
+  A technical choice the project has clearly made: one shape
+  adopted over an identifiable alternative. The bar is: a
+  reasonable engineer can identify both the choice and a
+  plausible different choice the project could have made.
+  Examples (concretely project-dependent):
+  - "persistence is Postgres with the `pgx` driver (alternatives:
+    SQLite, a different driver)"
+  - "claim recovery runs on a 30s tick (alternatives: longer
+    interval, event-driven recovery)"
+  - "handler registration is explicit (alternative: auto-discovery
+    via reflection)"
+
+  One decision per choice. Don't lump unrelated choices into one
+  file.
+
+  Discover decisions from:
+  - Architecture and configuration choices visible in code: which
+    library, which framework, which protocol, which storage shape,
+    which pattern.
+  - Comments and commit history that justify a choice.
+  - ADR-style files (if present) — extract the choice and
+    rationale, drop the historical narrative.
+  - Choices the `_discover/` Observations sections flag as
+    "choice with an identifiable alternative."
+
+  ### Decision template
+
+  Write each decision to
+  `.ok-planner/design/decisions/<slug>.md`.
+
+  ```markdown
+  ---
+  decision: <slug>
+  status: as-is
+  ---
+
+  # <Short decision title>
+
+  ## Choice
+
+  <The option the project adopted. One or two sentences, concrete
+  and unambiguous.>
+
+  ## Rationale
+
+  <Why this choice over the alternatives. Source from code,
+  comments, ADRs, or the most plausible reading of the code's
+  shape. If the rationale is genuinely unclear, file a tension
+  rather than fabricating one.>
+
+  ## Alternatives
+
+  <The options the project could have taken instead. One bullet
+  each. Brief — these are not full proposals, just enough to
+  show what was on the table.>
+  ```
 
   ### What is a tension?
 
@@ -694,29 +858,81 @@ Agent (general-purpose):
 
   {{TENSION-SURFACE-RULE}}
 
+  ### Current-state-only rule
+
+  Concept, story, decision, and tension bodies describe the
+  project **as it stands today**. They are not journals and
+  they are not roadmaps. Two failure modes to avoid:
+
+  - **Historical content** — "changed on YYYY-MM-DD",
+    "previously called X", "used to live in foo/bar.go", "see
+    spec Z that introduced this", "was tightened per spec Q",
+    or any audit-trail line whose subject is *what changed*
+    rather than *what is*. Git already records what changed;
+    duplicating that in the design doc is at best
+    distracting, at worst the artifact ages into a changelog
+    nobody reads. **There is no `## Notes` / `## History` /
+    `## Changelog` section on any concept, story, decision,
+    or tension file.** If you find one (in a hand-written
+    artifact or an older-version output), strip it.
+  - **Forward-looking content** — "we plan to", "will be
+    replaced by", "TODO: tighten this", "out of scope for
+    now", "deferred to V2", "open question for later". A
+    design doc that names work not yet done invites readers
+    (and execute-plan agents) to defer against it. Open
+    ambiguities go in `tensions/`, where they are tracked as
+    explicitly unresolved; intended future changes go in a
+    spec, not the design doc. Nothing in the durable model is
+    aspirational.
+
+  The exception is the discovery scaffolding kept around as
+  judgment-call surface: `_discover/` (phase-1 raw notes) and
+  `review-notes.md` (agent-confessed uncertainty consumed by
+  `/refine-design`). Those are explicitly point-in-time
+  artifacts; the durable model is not.
+
+  When a spec changes a concept / story / decision, the spec
+  rewrites the affected section in place to reflect the new
+  state. The git commit carries the lineage. Do not paste a
+  dated entry into the artifact body.
+
   ### Anti-padding
 
   - Don't manufacture tensions. If a topic is clear in
-    `_discover/`, the concept file alone is enough.
+    `_discover/`, the concept / story / decision file alone is
+    enough.
   - Don't merge tensions that share a category but are
     semantically separate. One tension per genuine muddiness.
   - Don't grade severity.
-  - Don't write more than one concept file for the same noun.
-    Merge if you find duplicates.
-  - Don't introduce code-path citations into concept body. The
-    concept owns the definition; code references it via
-    `@concept:`. See the "Concept self-containment rule"
-    above.
+  - Don't write more than one file for the same artifact (same
+    concept, same story, same decision). Merge if you find
+    duplicates.
+  - Don't introduce code-path citations into concept, story, or
+    decision bodies. The design owns the definition; code
+    references it via `@concept:` / `@story:` / `@decision:`
+    annotations. See the "Self-containment rule" above.
   - Don't introduce path or symbol citations into a tension's
     `## Resolution candidates` section. See the "Tension
     surface rule" above.
+  - Don't invent stories the product does not yet deliver, or
+    decisions the project has not yet made. The phase 2 output
+    is as-is.
+  - Don't add a `## Notes`, `## History`, `## Changelog`, or
+    any dated-audit-trail section to a concept, story,
+    decision, or tension. See the "Current-state-only rule"
+    above.
+  - Don't add forward-looking content ("we plan to", "will be
+    replaced by", "TODO", "deferred", "open question for
+    later"). Open ambiguities go in `tensions/`.
 
   ### Report
 
   When done, output:
   - Concepts written: list of slugs.
+  - Stories written: list of slugs.
+  - Decisions written: list of slugs.
   - Tensions written, grouped by category.
-  - `_discover/` entries that produced no concept (folded into
+  - `_discover/` entries that produced no artifact (folded into
     another, or noise — say which).
   - Reviewer findings addressed (if this was a fix cycle): list
     each finding and how it was addressed.
@@ -730,13 +946,14 @@ Agent (general-purpose):
 
   ### Your job
 
-  Review the concept and tension catalogs produced by the
-  extractor. Produce a structured report (`Approved` or `Issues
-  Found`) AND, on your final pass (whether approved or capped),
-  append your observations about the artifact's residual
-  uncertainty to `.ok-planner/design/review-notes.md`. The
-  review-notes file is the agent-confessed-uncertainty surface
-  the human reviews in `refine-design`.
+  Review the concept, story, decision, and tension catalogs
+  produced by the extractor. Produce a structured report
+  (`Approved` or `Issues Found`) AND, on your final pass (whether
+  approved or capped), append your observations about the
+  artifact's residual uncertainty to
+  `.ok-planner/design/review-notes.md`. The review-notes file is
+  the agent-confessed-uncertainty surface the human reviews in
+  `refine-design`.
 
   ### What to check on concepts
 
@@ -750,16 +967,93 @@ Agent (general-purpose):
   - **Invariants are stated as properties**: not "the code at X
     does Y" but "this concept holds property Y, enforced by
     annotation Z".
-  - **Aliases listed**: every alias surfaced in `_discover/` is
-    either listed here or has its own concept (if it actually
-    refers to something else).
-  - **`Open within this concept` items have tensions/ entries**:
-    every open item should have a corresponding tension file.
+  - **Aliases listed**: every alias surfaced in `_discover/` that
+    actually appears in current code or prose is either listed
+    here or has its own concept (if it actually refers to
+    something else). Aliases that no longer appear anywhere live
+    must not be listed — see the "Current-state-only rule"
+    above.
+  - **Open items are tensions, not concept-body sections**:
+    anything the as-is design leaves unresolved about this
+    concept goes in `tensions/<slug>.md`, not in a forward-looking
+    section of the concept body. If the extractor wrote an
+    "Open within this concept" or similar section into a concept
+    file, flag it.
+  - **Concept body is current-state only**: no `## Notes` /
+    `## History` / `## Changelog` section, no dated audit-trail
+    entries, no "previously called X" / "used to be Y" /
+    "changed per spec Z" lines, no forward-looking "TODO" /
+    "deferred" / "will be replaced" content. Lineage lives in
+    git; open items live in `tensions/`. See the
+    "Current-state-only rule" above.
   - **Concept body is self-contained**: audit every concept body
     against the self-containment rule reproduced under "Rules
     being enforced" below. Pre-existing violations (in concept
     files the current extraction didn't author) are still issues
     — flag every one you find.
+
+  ### What to check on stories
+
+  - **One story per user-observable outcome**: no duplicates. Two
+    stories that describe the same outcome through different
+    surfaces are still one story (the surface is a technical
+    decision, captured in `decisions/`, not story content).
+  - **As-is, not aspirational**: each story names a capability
+    the running product already delivers, observable by driving
+    the running product. A story for a feature the product does
+    not yet ship is an issue — the extractor must drop it.
+  - **Acceptance is user-observable and non-prescriptive**: a
+    user action described in user terms producing a real
+    observable outcome, with the value-delivering component named
+    and not stubbed. Reject acceptance that pins a specific
+    delivery surface (a particular HTTP route, CLI verb, wire
+    format, job schedule, or UI element) — those are decisions,
+    not story content.
+  - **Falsifier is concrete and user-observable**: names a
+    specific user-observable absence a reviewer could point at —
+    the user takes the action and the result never appears, the
+    result is unrelated to the input, or the underlying state is
+    synthetic (a stubbed value-delivering component).
+  - **Proof form named**: the Proof line specifies a form
+    (demo / example / proof / all) and what it must exhibit.
+  - **Story body is current-state only**: no `## Notes` /
+    `## History` / `## Changelog` section, no dated audit-trail
+    entries, no backward- or forward-looking phrasing. See the
+    "Current-state-only rule" above.
+  - **Story body is self-contained**: audit against the
+    self-containment rule. No file paths or code citations in
+    the body. Pre-existing violations are still issues.
+
+  ### What to check on decisions
+
+  - **One decision per choice**: no duplicates. Lumped items
+    ("we chose X for persistence and Y for messaging") must be
+    split into atomic decisions.
+  - **As-is, not aspirational**: each decision names a choice
+    the project has clearly made — visible in code, comments,
+    or commit history. A decision the project has not yet made
+    is an issue (it would be a tension or simply absent).
+  - **Choice is explicit**: the Choice section names the option
+    adopted, concrete and unambiguous.
+  - **Rationale present and sourced**: not "because we said so"
+    — the rationale is sourced from code/comments/ADRs, or
+    explicitly notes that it is the most plausible reading of
+    the code's shape. A genuinely unclear rationale is a
+    tension, not a fabricated reason.
+  - **Alternatives listed**: at least one identifiable
+    alternative is named (otherwise the choice isn't a choice
+    — it's the only option, and not worth recording).
+  - **Decision body is current-state only**: no `## Notes` /
+    `## History` / `## Changelog` section, no dated audit-trail
+    entries, no backward- or forward-looking phrasing. See the
+    "Current-state-only rule" above. (Alternatives is the list
+    of options the project *could* have taken — that's not
+    forward-looking; it's the as-is shape of the choice. But
+    "we may switch to alternative X" or "the chosen option was
+    formerly Y" violates the rule.)
+  - **Decision body is self-contained**: audit against the
+    self-containment rule. No file paths or code citations in
+    the body. Pre-existing violations are still issues.
 
   ### What to check on tensions
 
@@ -797,9 +1091,14 @@ Agent (general-purpose):
 
   ### Cross-check
 
-  - **Every `concept.aliases` alias has a Notes about retirement
-    intent OR a corresponding tension** if the alias is currently
-    live and might be retired.
+  - **Every `concept.aliases` alias actually appears in current
+    code or prose.** Aliases are a list of live names — not
+    retired names, not historical names. If an alias does not
+    appear anywhere live, drop it from the list. If multiple
+    live names point at the same concept and the project
+    should converge, that is a tension — produce a
+    corresponding tensions/ entry rather than recording the
+    convergence intent in the concept body.
   - **Every code annotation cited in `_discover/` lands somewhere**
     in either `concepts/` (as an invariant) or `tensions/` (as
     vestigial / inconsistent).
@@ -1023,35 +1322,46 @@ Agent (general-purpose):
   ### Goal
 
   The focused discoverer just expanded specific `_discover/`
-  entries. Update the affected `concepts/` files to reflect the
-  new material, and add tensions surfaced by the expansion. Add
-  new `concepts/<slug>.md` files ONLY when the original thin
-  discovery request explicitly authorized "Promote new concept".
+  entries. Update the affected `concepts/`, `stories/`, and
+  `decisions/` files to reflect the new material, and add
+  tensions surfaced by the expansion. Add new artifact files
+  (`concepts/<slug>.md`, `stories/<slug>.md`,
+  `decisions/<slug>.md`) ONLY when the original thin discovery
+  request explicitly authorized "Promote new artifact".
 
   ### Thin discovery requests
 
   (Filled in by the orchestrator. Each request names the affected
-  concept slug, the discoverer's expansion summary, and whether a
-  new concept may be promoted.)
+  artifact kind (concept / story / decision), its slug, the
+  discoverer's expansion summary, and whether a new artifact may
+  be promoted.)
 
   ### What to do per request
 
-  - Re-read the affected `concepts/<slug>.md` and the now-expanded
-    `_discover/<slug>.md` entry/entries.
-  - Edit the concept file in place: update `What it is`, `Purpose`,
-    `Boundaries`, and `Invariants` sections to incorporate the new
-    material. Make the concept say what the request flagged as
-    missing.
-  - If the request authorizes promoting a new concept, create
-    `concepts/<new-slug>.md` per the standard concept template.
-    Update neighboring concepts' `see also:` / Adjacent
-    references.
+  - Re-read the affected artifact file (`concepts/<slug>.md`,
+    `stories/<slug>.md`, or `decisions/<slug>.md`) and the
+    now-expanded `_discover/<slug>.md` entry/entries.
+  - Edit the artifact file in place to incorporate the new
+    material:
+    - **Concept**: update `What it is`, `Purpose`, `Boundaries`,
+      and `Invariants` to reflect what the request flagged as
+      missing.
+    - **Story**: update `Story`, `Acceptance`, `Falsifier`, or
+      `Proof` to reflect what the deeper read revealed about the
+      observable outcome.
+    - **Decision**: update `Choice`, `Rationale`, or
+      `Alternatives` to reflect what the deeper read revealed
+      about the choice's shape or motivation.
+  - If the request authorizes promoting a new artifact, create
+    the file per the standard template for that kind (concept /
+    story / decision). For concepts, update neighboring concepts'
+    `see also:` / Adjacent references.
   - If the deeper material surfaces a new tension, write a new
     `tensions/<slug>.md` per the standard tension template.
 
-  Do NOT touch concept files or tension files unrelated to the
+  Do NOT touch artifact files or tension files unrelated to the
   affected slugs.
-  Do NOT add new concepts that weren't authorized.
+  Do NOT add new artifacts that weren't authorized.
 
   ### Rules for the docs you touch
 
@@ -1081,33 +1391,42 @@ Agent (general-purpose):
   Keep under 300 words.
 ```
 
-## The `@concept:` annotation convention
+## The `@concept:`, `@story:`, `@decision:` annotation convention
 
-The design docs are the canonical source for what each concept means.
-Code references the design via in-source annotations of the form
-`@concept: <slug>` (mirroring the project's existing
-`@blessed-invariant`, `@source:`, `@diverged:`, `@agent-contract`
-patterns). The annotation marks a load-bearing site where the
-concept is enforced or expressed — not every file that happens to
-touch it.
+The design docs are the canonical source for what each artifact
+means. Code references the design via in-source annotations:
+
+- `@concept: <slug>` — load-bearing site where a concept is
+  enforced or expressed
+- `@story: <slug>` — load-bearing site for delivering a story's
+  user-observable outcome (the wired entry point, the handler that
+  produces the observable effect, the value-delivering component)
+- `@decision: <slug>` — site that embodies a technical decision
+  (the persistence call, the registration mechanism, the chosen
+  cadence)
+
+These mirror the project's existing `@blessed-invariant`,
+`@source:`, `@diverged:`, `@agent-contract` patterns. Each annotation
+marks a load-bearing site, not every file that happens to touch the
+artifact.
 
 Two artifacts together replace the need for an external index:
 
-- **`.ok-planner/design/concepts.md`** — auto-generated summary
-  (this skill produces it). Agents read it in one shot at the top
-  of any skill that reads the design docs to know what concepts
-  exist.
-- **`@concept: <slug>` annotations in source** — discoverable by
-  `rg '@concept: <slug>'`. Answers both "which concept(s) apply to
-  this file?" (read the file) and "where is concept X enforced?"
-  (grep across the repo).
+- **`.ok-planner/design/concepts.md`** (and `stories.md`,
+  `decisions.md`) — auto-generated summaries (this skill produces
+  them). Agents read them in one shot at the top of any skill that
+  reads the design docs to know what artifacts exist.
+- **Annotations in source** — discoverable by
+  `rg '@(concept|story|decision): <slug>'`. Answers both "which
+  artifacts apply to this file?" (read the file) and "where is
+  artifact X load-bearing?" (grep across the repo).
 
-Annotation rollout is incremental: any time an agent has to consult
-a concept to understand or modify a file, it leaves the annotation
+Annotation rollout is incremental: any time an agent consults an
+artifact to understand or modify a file, it leaves the annotation
 at the most-specific load-bearing site so the next agent doesn't
 have to re-do the lookup. This rule is documented in
-`.ok-planner/CLAUDE.md` (written by `ok-planner:affirm`) so it applies
-project-wide regardless of which skill is active. No bulk
+`.ok-planner/CLAUDE.md` (written by `ok-planner:affirm`) so it
+applies project-wide regardless of which skill is active. No bulk
 greenfield annotation pass is needed.
 
 ## Re-run discipline
@@ -1115,12 +1434,15 @@ greenfield annotation pass is needed.
 The skill is idempotent on `_discover/`: re-running deepens existing
 entries and adds new ones.
 
-The skill refuses to re-run when `concepts/` or `tensions/` are
-non-empty, because they may contain human edits from `refine-design`.
-To force a full rebuild, the user must delete `concepts/` and
-`tensions/` first (preserving `_discover/` if they want phase 1 to be
-incremental). To detect code-vs-design drift after refinement, use
-`/merge` instead.
+The skill refuses to re-run when `concepts/`, `stories/`,
+`decisions/`, or `tensions/` are non-empty, because they may contain
+human edits from `refine-design`. To force a full rebuild, the user
+must delete the non-empty durable directories first (preserving
+`_discover/` if they want phase 1 to be incremental). After
+refinement, the design model stays aligned with the code through the
+spec pipeline (`/brainstorm` → `/write-plan` → `/execute-plan`),
+which changes docs and code as one unit; `/merge` surfaces
+merge-only inconsistencies that the pipeline can't prevent.
 
 ## What this skill does NOT do
 

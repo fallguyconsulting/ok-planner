@@ -62,12 +62,15 @@ to end, in a single run.
 
 If the spec has a `## Design changes` section, treat every bullet there as a
 first-class plan task alongside the code work. Concept file mutations get
-explicit edit instructions (which file, which sections, what new text, what
-Notes entry to append). Tension file moves get explicit `mv` / `git mv` tasks
-with the destination path, status update, and resolution block. New concept
-or tension files get full-content task instructions. These design-doc edits
-are not optional follow-up — they ship in the same plan as the code that
-conforms to them, because the design docs and the code change as one unit.
+explicit edit instructions (which file, which sections, what the new text
+is — written as the artifact's current state, with no dated audit-trail
+or "previously was X" lines; design docs are current-state only, see
+`ok-planner:discover-design`'s "Current-state-only rule"). Tension file moves
+get explicit `mv` / `git mv` tasks with the destination path, status update,
+and resolution block. New concept or tension files get full-content task
+instructions. These design-doc edits are not optional follow-up — they
+ship in the same plan as the code that conforms to them, because the
+design docs and the code change as one unit.
 
 - A plan executes start to finish in one `execute-plan` run. No user-facing
   phases, stages, milestones, deliverables, or "phase 1 of N" framing. Passes
@@ -79,7 +82,8 @@ conforms to them, because the design docs and the code change as one unit.
   feature" are not the planner's concerns — those decisions were made when the
   spec was written.
 - No commit, push, branch, or PR steps. The user owns git. Plans produce
-  working-tree edits and verification commands; nothing else.
+  working-tree edits and runnable artifacts (tests, demos, examples);
+  nothing else.
 
 The spec is the source of truth for the plan. Brainstorm reviewed
 the spec against the design docs already; the plan does not re-check
@@ -130,252 +134,134 @@ explicit constraint, note it for the end-of-run handoff. The model
 is: make the call, let the reviewer check it, surface it to the
 user at the end — not pause mid-plan to ask.
 
-## Proof-first: a behavior change ships as a red test, then the fix
+## Per-pass falsifier brief
 
-The deepest execution failure is a feature that looks done because a
-test is green — but the test never exercised the behavior, so it was
-green before the code existed and stays green if the code is deleted.
-A green build then certifies a half-wired feature as complete. The
-plan prevents this **mechanically**, not by asking the implementer to
-"write good tests."
+Every pass — acceptance or intermediate — carries a **Falsifier**
+brief stating what observation would prove the pass did NOT deliver
+its goal. The validator (in `execute-plan`) argues from this brief
+against the diff: if the validator can point at the diff and show
+the falsifier holds, the pass has not been delivered and the loop
+returns to the implementer. There is no shell-runnable gate command,
+no flip-validation machinery, no `Proves:` / `Red-when-absent:`
+metadata — those existed to compensate for the planner having to
+author a coupling-via-exit-code, which the validator-as-judge model
+no longer needs.
 
-**Every task that changes runtime behavior — a bug fix or a new
-feature path — is planned as a red task followed by a green task:**
+The falsifier is short — one or two lines — and concrete:
 
-1. **Red task — add the proof, gate it to FAIL.** Add the test (or
-   runnable demo) that drives the *real* system and asserts an
-   *observable outcome*. Its verification asserts the test **fails**
-   against current code: `Verification: ! <the exact test command>` —
-   the gate exits 0 only when the test fails (`!` inverts the exit
-   code in any POSIX shell).
-2. **Green task — implement the fix, gate it to PASS.** Implement the
-   change. Its verification runs the *same named test* and asserts it
-   now passes: `Verification: <the exact test command>`.
+- For an **acceptance pass**, the falsifier comes from the story's
+  Falsifier field in the spec — a user-observable absence (the user
+  takes the action and the promised result never appears, appears
+  unrelated to their input, or appears but the underlying state is
+  synthetic because the value-delivering component is stubbed or
+  canned).
+- For an **intermediate pass**, the planner writes a pass-scoped
+  falsifier from the pass's goal. Example: "the new persistence
+  table is not present in the migration, OR the migration was added
+  but its FK references a table that doesn't exist."
 
-This is mechanical, not trust. A test that is green against current
-code — a struct/proto-shape assertion, a pure-helper call, a test
-written after the code — **fails the red gate** (it passes when it
-must fail), so `execute-plan` re-dispatches and it cannot reach DONE.
-Only a test coupled to the actual behavior passes both gates. The red
-task is red-green-revert done forward: the test is *proven* red
-without the fix — strictly stronger than reverting after the fact, and
-with no risky git surgery during the run.
+A pass without a falsifier is a pass the validator can't judge —
+plan review flags it.
 
-**What counts as a real proof:**
+## Acceptance: every user-outcome story ships with a demo, example, or proof
 
-- **Drives the real system** — the actual handler, the real process, a
-  testcontainers-backed store, an end-to-end dispatch — not an
-  in-memory fake substituted for the unit under test, and not a pure
-  function called in isolation as a proxy for a runtime behavior.
-- **Asserts an observable outcome** — a persisted row's state, a call
-  made over the wire, a returned status, a terminal state reached,
-  bytes written. Not the *shape* of a struct/proto/config, and not
-  "returned without error."
-- **Named concretely in the red task** — which test function and file,
-  what real path it drives, what observable outcome it asserts. "Add a
-  test" is not a task. "Add `TestHoldsOnlyAutoTerminal` in
-  `runner_test.go` that registers a `holds:`-only template, dispatches
-  the co-holder against a testcontainers Postgres, and asserts the
-  claim handle reaches `committed`" is.
+The spec's user-outcome stories are the contract. Each story
+carries `Acceptance:`, `Falsifier:`, and `Proof:` (from
+`brainstorm`'s story template). The plan turns each story into an
+**acceptance pass** that delivers two things together: the
+integrating wiring that makes the story actually work, and a
+**proof artifact** that exhibits the story to a third party.
 
-**The verification names the specific test, not a blanket suite.**
-`go test ./...` / `npm test` is satisfied by *any* green test in the
-tree, so it can't prove *this* fix. The green task targets the named
-test (`go test -run TestHoldsOnlyAutoTerminal ./lib/runtime/...`); a
-broad suite run may be added *as well*, never *instead*.
+**The proof artifact is a deliverable, not a gate.** The
+implementer writes both the wiring and the artifact in the same
+pass. `execute-plan`'s validator reads the spec, the diff, and the
+artifact, and argues from intent whether the diff actually
+delivers the story. The artifact's purpose is *exhibition* — to
+show the feature working through the real surface — and that
+purpose is what the validator judges. There is no flip-coupled
+gate; the artifact and the validator together are the contract.
 
-**Red and green are separate tasks, never collapsed** into one "add
-code and its test" step. Usually the red task is the tail of a pass
-and the green task opens the next, or both sit in one pass as adjacent
-tasks. A red task's pass ends `working` with an asserts-failure
-verification (`! <test>`) — a legitimate `working` gate, not
-`broken-intentional`: the tree builds, one new test is intentionally
-red, and the gate confirms exactly that.
+**Story → acceptance pass mapping.**
 
-**Scope.** The red-*test* requirement applies to behavior changes —
-anything that alters what the running system does. Pure
-behavior-preserving refactors, doc / concept-doc edits, and mechanical
-config changes don't need a red test *file*. They are NOT exempt,
-however, from proving their gate flips: every `working` gate — test or
-not — is authored as a provable flip (see "Gate flip metadata: every
-gate is a provable flip" below). A migration's gate proves "relation
-does not exist → exists"; that is a flip even though it is not a test.
-In doubt, treat it as behavior and write the red test.
+- A spec with N stories produces N acceptance passes (or fewer, if
+  multiple stories share a single assembled-product bring-up — but
+  every story still gets its own artifact and its own observable
+  assertion within that pass).
+- The acceptance pass is the **last pass for its story**. Earlier
+  passes do the mechanism work; the acceptance pass does the
+  integrating wiring and the artifact authoring.
+- Dropping a story's artifact, or merging stories so an outcome
+  goes unexhibited, is the exact hole that ships capabilities
+  unbuilt. The completion auditor catches this; the planner
+  prevents it.
 
-**Fallback (rare).** If a test genuinely can't be written before the
-fix (e.g., it can't compile without a type the fix introduces), plan a
-green task that adds fix + test, then an immediately following
-**revert-check task** that removes only the fix — by editing it out and
-back, never with `git stash`/`checkout`/`reset` — runs the test to
-confirm it goes red, and restores the fix, capturing the red-then-green
-output. Prefer red-first; use this only when red-first is structurally
-impossible.
+**Cover each story's necessity closure.** A story's artifact
+holds only if everything *necessary* for the user-outcome exists —
+including pieces the spec never spelled out (proto wiring, the
+emit site, the registration that does real work). Plan the
+closure up front; trace each story to the full set of changes
+without which its proof would be hollow.
 
-## Gate flip metadata: every gate is a provable flip
+**Authoring each acceptance pass.** Per spec story, the
+acceptance pass contains:
 
-A verification command is a real gate only if it is **red when the
-pass's work is absent and green when it is present**. `execute-plan`
-does not trust a gate on faith — it runs the gate before the work (it
-must be red for the *right reason*), runs it after (it must go green),
-and if the gate can never pass (a `docker compose run` that starts no
-server) or passes proving nothing (a green-from-birth test), it repairs
-the gate autonomously and records the repair as a divergence. For the
-executor to tell a *right-reason* red (the deliverable is genuinely
-absent) from an *infrastructure* red (the command can't even run its
-check), every `working` pass authors two lines alongside its
-`Verification:`:
+- **Implementing tasks** — the wiring tasks that make the story
+  actually deliverable end-to-end (entry-point registration,
+  the value-delivering component's real implementation, the data
+  flow that connects them).
+- **A proof task** — an explicit task naming the artifact the
+  implementer must produce. Use the form the story's `Proof:`
+  field specifies (demo / example / executable proof / all-of-
+  the-above) and what it must exhibit. The artifact:
+  - boots or invokes the **real assembled product** through the
+    **delivery surface the spec's TDs prescribe** (the CLI verb,
+    HTTP route, wire message, scheduled job named in the
+    relevant `TD-` entry) — never an in-process construction of
+    components. The story names what the user does and observes;
+    the TDs name how the product exposes it; the proof task
+    combines the two.
+  - drives the story's Acceptance trigger
+  - exhibits or asserts the story's observable outcome
+  - uses the **real value-delivering component** doing real work
+    — a canned stub standing in for the thing the story exists
+    to exercise defeats the entire pass
+  - is committed alongside the wiring in the same pass
 
-- **`Proves:`** — one line naming the *deliverable* a green gate
-  establishes ("both new tables and the `profile` column exist and are
-  queryable").
-- **`Red-when-absent:`** — what the command does on the work-absent
-  tree, and the failure signature that means *right-reason* red: a
-  failed assertion, a missing relation / column / symbol — NOT an
-  infrastructure error (connection refused, command not found, no such
-  service).
+The proof task's description quotes the story's `Proof:` line
+verbatim; its `Files:` names the artifact file(s) the implementer
+creates; it references the story by slug (`STORY-<slug>`).
 
-Authoring `Red-when-absent` is itself a check on the gate: if the only
-failure you can describe for the work-absent tree is infrastructural
-("it won't connect"), the gate is mis-environed — fix the command, not
-the field. For a red task the `! <test>` line already encodes the flip
-(`Red-when-absent` is "the named test fails"); state it anyway for
-uniformity. `broken-intentional` passes have `Verification: none` and
-no flip metadata.
+**Form-of-proof guidance.** The artifact form is chosen by the
+spec story, not the planner — write what the story asked for:
 
-Example — a non-test gate (a schema migration):
+- **Demo** — a runnable script, command sequence, or driver
+  program that walks through the feature working. Saved to the
+  project's demos directory (or `examples/`, project-dependent).
+- **Example** — a worked illustration, often code + commentary,
+  that someone reading later could follow to use the feature.
+  Often saved to docs or to `examples/`.
+- **Executable proof** — a committed test that drives the real
+  assembled product end-to-end (testcontainers, subprocess
+  harness, integration test). Saved to the project's test
+  directory.
+- **All of the above** — when the story calls for multiple
+  forms, the planner authors a proof task for each, distinct
+  files, all under the same acceptance pass.
 
-```text
-**Verification:**     docker compose up -d postgres && docker compose exec -T postgres \
-                        psql -U zoning -d zoning -v ON_ERROR_STOP=1 \
-                        -c "SELECT FROM data_source_endpoints LIMIT 0; SELECT profile FROM data_sources LIMIT 0;"
-**Proves:**           the new table and the profile column exist and are queryable
-**Red-when-absent:**  before the migration, psql exits non-zero with
-                        `relation "data_source_endpoints" does not exist` — a missing
-                        relation (right-reason red), NOT a connection/command error
-```
+In every form, the artifact lives in the codebase as a real
+file. As acceptance passes accumulate over many specs, the
+collected artifacts become the project's demo corpus / regression
+suite as a byproduct — not because the planner authored them as
+regression coverage, but because each acceptance pass leaves a
+real, runnable proof behind.
 
-The `run`-vs-`exec` and `ON_ERROR_STOP` details matter: `docker compose
-run <svc> psql` starts a throwaway container with no server and can
-never connect (a false-negative gate), and a bare `psql -c "\d table"`
-exits 0 whether or not the table exists (a false-positive gate). A gate
-you cannot give a right-reason `Red-when-absent` is a defective gate —
-catch it here, at authoring time.
-
-**Run the gate; don't just describe it.** Authoring `Red-when-absent`
-from reasoning is necessary but not sufficient — a command can *read* as
-obviously correct and still be green on the work-absent tree, proving
-nothing. A described intent is not an observed failure. So for every
-`working` gate you can run at authoring time, **execute the verification
-command once against the current tree** (which lacks this plan's
-deliverables) and read its exit code:
-
-- **Non-zero for the right reason** (a failed assertion, a missing
-  relation / column / symbol, a compile error naming the absent
-  deliverable) → the red half is proven; write `Red-when-absent` from
-  what you actually saw.
-- **Exit 0 (green)** → the gate is a **false positive**: it passes while
-  the deliverable is absent, so it cannot be coupled to the work. Fix the
-  command until it fails for the right reason, then re-run. Never finalize
-  a gate you have not seen go red.
-
-Running it is the only way to catch the most common false positive, which
-reading the command never reveals: **a test-filter that matches nothing
-exits 0.** `swift test --filter X`, `go test -run X`, `pytest -k X`, and
-`jest -t X` all *succeed* when the filter selects zero tests, so a gate
-naming a not-yet-written suite is green from birth. (Same family as the
-`\d`/describe and `docker compose run` traps above — all read fine and
-fail only when run.) When the named test does not exist yet, gate on the
-test *actually running* — require a non-zero executed-test count, or
-assert the suite is listed before running it — so "zero tests matched" is
-a failure, not a pass.
-
-**What the dry-run proves, and what it leaves to `execute-plan`.** The
-current tree lacks *every* deliverable in the plan, so "is this gate
-green when its work is absent?" is answerable now for every `working`
-pass — and that false-positive catch is the whole defect class that
-otherwise survives to execution. What you cannot finish proving at
-authoring time is the *green* half (the gate passes once the work lands)
-or the exact right-reason red for a later pass whose work-absent baseline
-is "after earlier passes" rather than the current tree — a pass-N gate
-may go red against the current tree by failing to compile against
-pass-(N-1)'s absent code, which is fine (it is not green). Proving the
-full red→green flip against each pass's real work-absent baseline is
-`execute-plan`'s job; yours here is to ensure no gate reaches it already
-green. A gate whose infrastructure is not available at authoring time (a
-device, a service a task stands up, a script a later task writes) cannot
-be dry-run — note it and let `execute-plan`'s pre-flight be its first
-real run.
-
-## Acceptance: prove every user-outcome story against the real product
-
-Proof-first (above) gates each behavior change with its own red→green
-test. But a feature is more than the sum of its behavior changes: the
-handler can pass its test, the route can pass its test, and the two can
-still never be wired together. Unit and integration tests prove the
-parts; nothing there proves the *assembled* feature does its job when the
-real product runs. The acceptance pass closes that gap.
-
-**The spec's user-outcome stories are the contract; the plan gates every
-one of them.** A spec opens with a complete, enumerated set of
-user-outcome stories (see `brainstorm`'s "User outcomes"). The plan's
-**final pass(es) are acceptance passes that carry one end-to-end gate per
-story** — not one gate for the spec. A spec with five stories has five
-acceptance gates; the run cannot complete until all five are green. One
-acceptance pass may host several story gates against a single
-assembled-product bring-up (cheaper than five separate boots), but every
-story gets its own gate and its own observable assertion. Dropping a
-story's gate, or merging it into another so its outcome is never
-asserted, is the exact hole that ships a promised capability unbuilt.
-
-**Cover each story's necessity closure.** A story's acceptance holds only
-if everything *necessary* for its user-outcome exists — including pieces
-the spec never spelled out (the proto wiring, the emit site, the
-registration that actually does something). The plan must contain tasks
-for that closure, not just the literally-named work: trace each story to
-the full set of changes without which its acceptance gate stays red, and
-plan all of them. The acceptance gate makes this self-checking — a story
-whose closure is incomplete cannot pass — but plan the closure up front
-rather than discovering it as a red gate mid-run.
-
-Each story's acceptance gate:
-
-- **End state `working`.** Acceptance is the last pass(es), so the plan
-  ends on green acceptance gates — every story's.
-- **Each gate boots the real assembled product** — the shipped binaries,
-  the real image, the real entry point a user would hit (HTTP route, CLI
-  verb, wire message) — and drives its story to the story's observable
-  outcome. Not an in-process construction of components, not a unit
-  harness calling a handler directly: the thing a user actually runs. A
-  testcontainers-backed or subprocess-backed end-to-end test that brings
-  up the real artifact counts; an in-memory assembly of structs does not.
-- **The value-delivering component is real, not stubbed.** If a story
-  exists so that some executor, worker, sensor, or subscriber does real
-  work, its acceptance gate wires a real one doing real work and asserts
-  the real effect. A canned-success stub at this gate defeats the entire
-  pass — it is the single thing this pass most exists to forbid.
-- **Every gate is proof-first.** Ideally a story's final integrating
-  wiring is the green task and its acceptance is authored to FAIL before
-  it (`Verification: ! <acceptance command>`), flipping to pass once the
-  wiring lands — so the gate cannot pass against an unwired story. Where
-  earlier passes already assembled everything and a story's gate is green
-  on arrival, use the proof-first **revert-check fallback** (see above) to
-  prove it would go red without the story's integrating edit.
-- **Each gate names its acceptance command** — runnable and readable from
-  its output like every other gate, never a manual "bring up the stack
-  and look."
-
-These passes are what make "the product actually works" a machine-checked
-gate instead of a `## Manual checks after completion` afterthought. As
-specs accumulate, their per-story acceptance gates become the project's
-end-to-end regression coverage as a byproduct — committed tests, re-run by
-the normal suite — with nothing maintaining a separate corpus.
-
-**When a plan needs no acceptance pass.** Only when the spec states no
-user-outcome stories (a pure refactor, docs / concept-doc-only work, an
-internal mechanism with no user-reachable surface). If the spec states
-any story, the plan must carry an acceptance gate for **each** one; the
-planner does not get to drop a story, merge its gate away, or downgrade it
-to a unit test.
+**When a plan needs no acceptance pass.** Only when the spec
+states no user-outcome stories (a pure refactor, docs- or
+concept-doc-only work, an internal mechanism with no
+user-reachable surface). If the spec states any story, the plan
+must carry an acceptance pass for **each one**; the planner does
+not get to drop a story, merge its artifact away, or downgrade
+it to a unit test.
 
 ## Autonomous Execution Required
 
@@ -392,7 +278,7 @@ Do **not** include steps that require:
 
 All verification must be expressible as a command the implementer can run and read the output of — typically a test, a type check, a lint, or a targeted script. "The test passes" is a verification. "It looks right" is not.
 
-If a feature genuinely requires manual verification that cannot be automated (e.g., visual review of a rendered UI, a human-in-the-loop ML evaluation), **do not** put it inside a task. Collect those items in a final `## Manual checks after completion` section at the end of the plan. That section is for the user to run through after the implementation and code review are done — it is not part of the automated run. **"Does the feature actually work when the product runs" is not one of these items** — that is the acceptance pass (see "Acceptance" above), an automated end-to-end gate, not a manual check. Reserve this section for verifications that genuinely cannot be expressed as a command (true visual judgment of a rendered UI, human-in-the-loop evaluation); never use it to defer end-to-end validation that could be automated.
+If a feature genuinely requires manual verification that cannot be automated (e.g., visual review of a rendered UI, a human-in-the-loop ML evaluation), **do not** put it inside a task. Collect those items in a final `## Manual checks after completion` section at the end of the plan. That section is for the user to run through after the implementation and code review are done — it is not part of the automated run. **"Does the feature actually work when the product runs" is not one of these items** — that is the acceptance pass (see "Acceptance" above), which produces a demo / example / proof artifact the validator confirms exhibits the story working. Reserve this section for verifications that genuinely cannot be expressed in a runnable artifact (true visual judgment of a rendered UI, human-in-the-loop evaluation); never use it to defer end-to-end validation that could be exhibited.
 
 ## File Structure
 
@@ -415,30 +301,28 @@ Map out files before defining tasks. Design units with clear boundaries. Each fi
 
 **Pass sizing:** A pass should fit comfortably in one subagent's working context — typically a handful of tasks against a focused area of the codebase. If a pass enumerates 10+ tasks or scatters across unrelated areas of the tree, consider splitting it. If two adjacent passes touch the same handful of files in continuous order with no meaningful boundary between them, consider merging them.
 
-**End-state declarations:** Each pass declares the state the codebase is in at its end:
+**Every pass leaves the tree working.** Each pass must end with the
+codebase in a working state — the implementer of the next pass should
+not be handed a broken tree. If a unit of work conceptually requires
+"tear down old, then build new," express it as one pass with both the
+teardown and the rebuild tasks, ending working. Multi-pass migrations
+where intermediate passes leave the tree broken are not supported —
+they confuse implementers and add machinery for no gain.
 
-- `working` — the pass's verification command must succeed before the next pass dispatches. This is the default.
-- `broken-intentional` — the pass deliberately leaves the codebase non-working (e.g., it deletes the old code path before a later pass adds the new one). The declaration MUST name the pass that restores working state, e.g., `broken-intentional (restored by Pass 4)`.
-
-Most passes are `working`. `broken-intentional` is for migrations and replacements where the half-state is unavoidable: "delete old auth code → add new auth code → flip callers → restore tests" is naturally 3–4 passes with the middle two non-working. Do not use `broken-intentional` to avoid writing a verification command; use it only when the codebase genuinely cannot pass its checks at the pass boundary.
-
-**Verification:** A `working` pass has a verification command the executor runs between passes — a test, typecheck, lint, or targeted script. The command's exit code is the gate. A `broken-intentional` pass has `Verification: none` because the codebase isn't expected to verify cleanly. A verification may *assert failure*: a red-test gate `! <the exact test>` exits 0 only when the named test fails, and is a legitimate `working` verification for a red task (see "Proof-first"). Every `working` gate is also authored with `Proves:` and `Red-when-absent:` so the executor can validate it flips red→green around the work (see "Gate flip metadata: every gate is a provable flip").
+**Falsifier brief per pass.** Every pass carries a `Falsifier:` line
+stating what observation would prove the pass did not deliver its
+goal — what the validator argues against (see "Per-pass falsifier
+brief" above). For acceptance passes the falsifier comes from the
+story's `Falsifier:` field; for intermediate passes the planner
+writes a pass-scoped falsifier from the pass's goal.
 
 ## Task granularity (within a pass)
 
 Each step inside a task is one discrete, verifiable action: one thing the implementer does, followed by something concrete to check. Small steps exist to create checkpoints — they isolate failures, keep each step's output inspectable, and make recovery cheap when something goes wrong. They are not a concession to limited agent capacity.
 
-- "Write the failing test" -- step
-- "Run it to verify it fails" -- step
-- "Implement the code" -- step
-- "Run tests to verify they pass" -- step
-
-For a behavior change these steps split across the **red task** and the
-**green task** (see "Proof-first"): the red task ends at "run it to
-verify it fails" and is gated on that failure (`Verification: ! <test>`);
-the green task implements the code and is gated on the test passing. The
-"verify it fails" step is not optional or self-reported — it is the red
-task's verification command, and `execute-plan` runs it.
+- "Write the code" — step
+- "Run the test" — step
+- "Confirm the output matches expectation" — step
 
 Do not bundle independent edits into one step. Frame steps by the action they perform and the check that follows — never by how long they would take, how easy they are, or how much effort they require.
 
@@ -462,43 +346,77 @@ authored without going through `brainstorm` (i.e., no spec exists), write
 
 ## Pass and Task Structure
 
-Tasks live under passes. Each pass has a header with goal/end-state/verification; each task under it has its own files list, numbered steps, and verification command. Tasks are numbered globally across the plan, not reset per pass — that way the divergence audit, plan reviewer, and user can reference "Task 7" unambiguously.
+Tasks live under passes. Each pass has a header with goal / scope /
+falsifier; each task under it has its own files list and numbered
+steps. Tasks are numbered globally across the plan, not reset per
+pass — so the completion auditor, plan reviewer, and user can
+reference "Task 7" unambiguously.
 
 ```markdown
-## Pass 1: Delete the legacy auth path
+## Pass 1: Add session-based auth module
 
-**Goal:** Remove the old token-based auth code so the new session-based code can land cleanly in Pass 2.
+**Goal:** Introduce the new session module with its unit tests.
 **Scope:** Tasks 1–3
-**End state:** broken-intentional (restored by Pass 3)
-**Verification:** none
+**Falsifier:** the new session module is not present in `internal/auth/session*.go`, OR it has no tests, OR the tests don't exercise the session lifecycle (create / refresh / revoke).
 
-### Task 1: Remove `internal/auth/token.go`
+### Task 1: Add `internal/auth/session.go`
 
-**Files:** `internal/auth/token.go`, `internal/auth/token_test.go`
+**Files:** `internal/auth/session.go` (new)
 
 **Steps:**
-1. Delete both files.
-2. ...
-
-**Verification:** `git status` confirms the files are gone.
+1. Create the file with the session struct and constructor.
+2. Implement create / refresh / revoke methods.
+3. Run `go build ./internal/auth/...` and confirm it compiles.
 
 ### Task 2: ...
 
 ---
 
-## Pass 2: Add session-based auth
+## Pass 2: Wire the session module to the HTTP entry point (acceptance pass — STORY-session-login)
 
-**Goal:** Introduce the new session module with full tests.
+**Goal:** Connect the session module to `POST /login` and deliver STORY-session-login end-to-end.
 **Scope:** Tasks 4–6
-**End state:** working
-**Verification:** `go test ./internal/auth/...`
-**Proves:** the new session module exists and its tests pass
-**Red-when-absent:** before this pass the package fails to build / has no session tests (a compile or test failure, not an environment error)
+**Falsifier:** `POST /login` does not return a session token, OR the session it returns is not retrievable on subsequent authenticated requests, OR the session-creation code path is not reached when `POST /login` is hit (handler unwired, route not registered, value-delivering component stubbed).
 
-### Task 4: ...
+### Task 4: Register `POST /login` and wire to session.Create
+
+**Files:** `internal/server/routes.go`, `internal/server/login.go` (new)
+
+**Steps:**
+1. Add route registration in `routes.go`.
+2. Create `login.go` with the handler that calls `session.Create`.
+3. ...
+
+### Task 5: Add acceptance demo for STORY-session-login
+
+**Files:** `examples/session-login-demo.sh` (new)
+
+**Story:** STORY-session-login
+**Proof form (from spec):** demo — exhibits a successful login flow against the running server, showing the returned session token is usable for an authenticated request.
+
+**Steps:**
+1. Create a shell script that:
+   - Starts the server (or assumes a running instance).
+   - POSTs to `/login` with sample credentials.
+   - Extracts the session token from the response.
+   - Issues an authenticated request using the token.
+   - Prints both responses so a reader can see the full flow.
+2. Run the script against a local server and confirm both responses look right.
+3. Commit the script as the story's proof artifact.
 ```
 
-Every verification is a command the implementer can run and interpret from its output. Do not include commit steps, "ask the user" steps, or manual-check steps — the user commits when they are ready and manual checks go in the final section (see Autonomous Execution Required above).
+Notes on the shape:
+- The `Falsifier:` is the validator's contract. It names a concrete
+  observation a reviewer could point at in the diff — not a generic
+  "the feature doesn't work."
+- Acceptance passes annotate their header with the story slug they
+  serve (`acceptance pass — STORY-<slug>`) so the completion auditor
+  can pair them up.
+- The proof task quotes the story's `Proof:` field from the spec and
+  names the artifact file(s) it produces.
+- Do not include commit steps, "ask the user" steps, or manual-check
+  steps — the user commits when they are ready and manual checks go
+  in the final section (see Autonomous Execution Required above).
 
 ## Plan Review
 
@@ -556,6 +474,18 @@ Agent (general-purpose):
     moves to `_resolved/` or `_rejected/`, new concept or tension
     files). Design-doc edits ride alongside code edits in the
     same plan; missing tasks here are blocking.
+  - Design-doc tasks respect the current-state-only rule (see
+    `ok-planner:discover-design`'s SKILL.md). Flag any task
+    that directs adding a `## Notes` / `## History` /
+    `## Changelog` section to a concept, story, or decision; any
+    task that directs appending a dated audit-trail entry
+    (`<date> — <what changed per spec X>`); any task that
+    writes backward-looking phrasing into the artifact body
+    ("previously called X", "(was 60s)", "changed per spec Z");
+    any task that writes forward-looking phrasing ("TODO", "we
+    plan to", "will be replaced", "deferred"). The fix is to
+    rewrite the task so the artifact body describes the new
+    state directly — git carries the lineage.
   - Load-bearing properties are explicit and checked. Identify the
     properties the spec relies on (durability, completeness,
     atomicity, ordering, idempotency, no-data-loss,
@@ -567,82 +497,47 @@ Agent (general-purpose):
     load-bearing property with no real verification is a blocking
     gap: it can regress silently during execution and slip past
     review.
-  - Proof-first compliance (blocking). For every task that changes
-    runtime behavior, the plan must pair a **red task** (adds the
-    test, verification asserts it FAILS — `! <the exact test>`) with a
-    **green task** (implements the fix, verification runs the *same
-    named test* and asserts it passes). Check that: (a) the test
-    drives the real system and asserts an observable outcome — a
-    persisted row, a wire call, a returned status, a terminal reached
-    — NOT a struct/proto/config shape, a pure-helper call, or an
-    in-memory fake standing in for the system under test; (b) the red
-    task's verification is an asserts-failure gate, not a green-from-
-    birth test; (c) the verification names the specific test, not a
-    blanket `go test ./...` / `npm test` that any green test satisfies;
-    (d) red and green are separate tasks, not collapsed. A behavior
-    change with no red task, a shape-only "test", or a blanket-suite
-    verification is a blocking gap — that is exactly the defect that
-    lets a half-wired feature pass as done.
-  - Gate flip metadata (blocking for `working` passes). Every `working`
-    pass states `Proves:` and `Red-when-absent:` alongside its
-    `Verification:` (see "Gate flip metadata: every gate is a provable
-    flip"). Check that: (a) both are present; (b) `Red-when-absent` names
-    a *right-reason* failure — a failed assertion, a missing relation /
-    column / symbol — NOT an infrastructure error (connection refused,
-    command not found, no such service); if the only failure the author
-    can name is infrastructural, the gate is mis-environed → flag it;
-    (c) the `Verification` command is not a known-defective shape:
-    `docker compose run <service> <client-cmd>` (starts no server — use
-    `exec` into the running service), a describe / `\d` that exits 0
-    whether or not the object exists (use a strict query with
-    `ON_ERROR_STOP=1` or equivalent), a test-filter that exits 0 when it
-    selects nothing — `swift test --filter X`, `go test -run X`,
-    `pytest -k X`, `jest -t X` all *pass* when zero tests match, so a
-    filter naming a not-yet-written suite is green from birth (the gate
-    must instead require the test to actually run: a non-zero executed
-    count, or list-the-suite-then-run) — or a blanket `go test ./...` /
-    `npm test` any green test satisfies; (d) **actually run each
-    `working` gate's `Verification` command against the current tree and
-    read its exit code** — do not judge the gate by reading it alone. The
-    current tree lacks the plan's deliverables, so a gate that exits 0
-    here is a false positive (it proves nothing about work that does not
-    yet exist) and is blocking no matter how correct the command reads;
-    a non-zero exit for a right reason (failed assertion / missing
-    symbol / compile error naming the absent deliverable) is fine, while
-    a non-zero exit only from an infrastructure error is mis-environed →
-    flag it. Skip the run only for a gate whose infrastructure genuinely
-    is not available at authoring time (a device, a service the plan
-    stands up, a script a task writes) — and note which gates you could
-    not run. A `working` gate missing its flip metadata, carrying an
-    infrastructure-only `Red-when-absent`, using a known-defective
-    command, or exiting 0 on the work-absent tree is a blocking gap —
-    `execute-plan` can repair some of these at runtime, but a gate proven
-    red at authoring time is cheaper and never burns a run.
-  - Acceptance-pass compliance (blocking). If the spec states
-    user-outcome stories, the plan's final pass(es) must carry **one
-    acceptance gate per story** — not one gate for the whole spec.
-    Check (1) coverage: every story has its own acceptance gate that
-    asserts that story's observable outcome; a story with no gate, or
-    whose gate is merged into another so its outcome is never
-    asserted, is a blocking gap — that is exactly how a promised
-    capability ships unbuilt. Then, for each gate: (a) it boots the
-    real assembled product / shipped entry point — not an in-process
-    construction of components or a unit harness calling a handler
-    directly; (b) it drives its story to the story's real observable
-    outcome; (c) it keeps the value-delivering component real — a real
-    executor / worker / sensor / subscriber doing real work; a stub or
-    canned-success substitute at this gate is a blocking gap; (d) it is
-    gated proof-first (red-then-green, or the revert-check fallback) so
-    it cannot pass against an unwired story; (e) it names a runnable
-    acceptance command, not a manual check. Also check **necessity
-    closure**: for each story, the plan contains the tasks without
-    which its acceptance gate could not go green — including pieces the
-    spec did not literally name (proto wiring, emit sites, the
-    registration that does real work). A story whose closure is
-    under-planned will stall at a red acceptance gate during execution;
-    flag a visibly incomplete closure here. A spec with no user-outcome
-    stories (pure refactor / docs-only / no user-observable change)
-    correctly has no acceptance pass; do not flag its absence there.
+  - Falsifier brief per pass (blocking). Every pass — acceptance or
+    intermediate — carries a `Falsifier:` line stating what
+    observation would prove the pass did not deliver its goal.
+    Check (a) presence: every pass has one; (b) concreteness: the
+    falsifier names a specific observable absence a reviewer could
+    point at in code (a missing file, a stubbed component, an
+    unwired registration, a missing column) — not a generic "the
+    feature doesn't work" or the goal restated in the negative;
+    (c) for acceptance passes, the falsifier matches or extends the
+    story's `Falsifier:` field from the spec — never weaker; (d) the
+    falsifier is short (one or two lines). A pass without a
+    falsifier, or with a falsifier the validator could not argue
+    against, is blocking — `execute-plan`'s validator has nothing to
+    judge against.
+  - Acceptance pass authoring (blocking). If the spec states
+    user-outcome stories, the plan must include **one acceptance
+    pass per story** delivering both the integrating wiring AND a
+    proof artifact (demo / example / executable proof / all-of-the-
+    above) per the story's `Proof:` field. Check (1) coverage: every
+    story has its own acceptance pass with its own proof task; a
+    story with no acceptance pass, or whose artifact is merged into
+    another so its outcome is never exhibited, is blocking — that is
+    how a promised capability ships unbuilt. Then, for each
+    acceptance pass: (a) the pass header annotates the story slug it
+    serves; (b) the proof task names the artifact file(s) the
+    implementer creates and quotes the story's `Proof:` field; (c)
+    the artifact's described form drives the **real assembled
+    product** through the delivery surface the spec's TDs prescribe
+    (the CLI verb / HTTP route / wire message named in the relevant
+    `TD-` entry), not an in-process construction; (d) the artifact
+    exhibits or asserts the story's real observable outcome; (e) the
+    value-delivering component is real, not stubbed — a story whose
+    proof task uses a canned stub is a blocking gap. Also check
+    **necessity closure**: for each story, the plan contains the
+    wiring tasks without which the artifact could not exhibit the
+    outcome — including pieces the spec did not literally name
+    (proto wiring, emit sites, registrations that do real work). A
+    story whose closure is under-planned will fail the validator at
+    execution time. A spec with no user-outcome stories (pure
+    refactor / docs-only / no user-observable change) correctly has
+    no acceptance pass; do not flag its absence there.
   - Task decomposition (one discrete action plus verification per
     step)
   - Buildability (the implementer can act on each task from the
@@ -671,23 +566,16 @@ Agent (general-purpose):
     single pass with 30+ tasks (one subagent shouldn't be asked to
     do that much — it wants splitting into more passes), and passes
     fragmented so trivially that the count is padded.
-  - Each pass header declares **Goal**, **Scope** (task
-    range), **End state**, and **Verification**.
-  - End state is `working` or `broken-intentional`. Every
-    `broken-intentional` pass MUST name the pass that restores
-    working state (e.g., "restored by Pass 4"). A
-    `broken-intentional` pass that doesn't name a restorer is a
-    blocking issue — the executor has no signal that the half-state
-    is intentional.
-  - The final pass MUST end with `working` (the plan can't leave
-    the codebase broken). Flag any plan whose last pass is
-    `broken-intentional`. For a spec that states an acceptance
-    scenario, this final `working` pass is the acceptance pass (see
-    "Acceptance-pass compliance" above).
-  - `working` passes have a non-empty Verification command AND the
-    `Proves:` / `Red-when-absent:` flip metadata (see "Gate flip
-    metadata" under Plan quality checks). `broken-intentional` passes
-    have `Verification: none` and no flip metadata. Flag mismatches.
+  - Each pass header declares **Goal**, **Scope** (task range), and
+    **Falsifier**. Acceptance passes additionally annotate the
+    story slug in the header (`acceptance pass — STORY-<slug>`).
+  - Every pass leaves the tree in a working state — there is no
+    `broken-intentional` end-state, and no "restored by Pass N"
+    framing. Multi-pass work that conceptually requires teardown
+    before rebuild is expressed as one pass containing both. Flag
+    any pass that says or implies "this leaves the tree non-working"
+    or names a restorer pass — it is a blocking authoring error,
+    not a supported pattern.
   - Adjacent passes that touch the same handful of files in
     continuous order with no meaningful boundary — consider
     merging. Passes that enumerate 10+ tasks or scatter across
@@ -699,7 +587,7 @@ Agent (general-purpose):
   only part of the spec — the plan must cover the spec in full
   and execute end-to-end in a single `execute-plan` run. Flag any
   commit, push, branch, PR, deployment, release, or rollout steps —
-  plans produce working-tree edits and verification commands;
+  plans produce working-tree edits and runnable artifacts;
   delivery process is the user's concern.
 
   Only flag issues that would cause implementation failure or

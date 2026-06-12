@@ -1,22 +1,43 @@
 ---
 name: affirm
-description: "Affirm the .ok-planner/ artifact layout: create directories if absent, write or overwrite the embedded `.ok-planner/CLAUDE.md` to match the current template (the file is skill-owned boilerplate; drift is overwritten without prompting). Idempotent. Invoked by other ok-planner skills before producing artifacts; also user-invokable as `/affirm`."
+description: "Affirm the .ok-planner/ artifact layout: run the deterministic bash script that creates the directory tree if absent and overwrites `.ok-planner/CLAUDE.md` from the canonical template. Idempotent. Invoked by other ok-planner skills before producing artifacts; also user-invokable as `/affirm`."
 ---
 
 # Affirm ok-planner artifact layout
 
-Ensures the `.ok-planner/` directory tree exists at the project root and that the embedded `.ok-planner/CLAUDE.md` matches the current template. **Unified semantics:** create what's absent, overwrite `CLAUDE.md` wholesale with the current template. Idempotent — re-running on a project that's already in compliance produces no change.
+Hand the work to a deterministic bash script. The `.ok-planner/CLAUDE.md` template is fixed boilerplate with nothing to interpret, judge, or merge — having the LLM rewrite it on every invocation was pure token waste. The script does the whole job in one `cp` and a handful of `mkdir -p`s.
+
+## What to do
+
+Invoke the script via Bash. That is the entire skill:
+
+```
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/affirm"
+```
+
+Pass the script's one-line summary back to the calling skill (or the user, if invoked directly) as your response. Do not add explanation. Do not produce a long report. Do not read any of the files the script wrote to "verify" — the script is deterministic and its exit code is the verification.
+
+This behavior is identical whether affirm was invoked by the user via `/affirm` or by another skill mid-pipeline. It never interrupts a run to ask about `CLAUDE.md`.
+
+## What the script does
+
+- Resolves the project root: the nearest `.git` ancestor of the working directory, else the working directory itself.
+- Creates any missing subdirectories under `.ok-planner/`: `specs/`, `plans/`, `sketches/`, `history/specs/`, `history/plans/`, `history/sketches/`.
+- If `.ok-planner/design/` already exists (bootstrapped by `discover-design` or by hand), also creates any missing buckets under it: `design/concepts/`, `design/stories/`, `design/decisions/`, `design/tensions/`. Does **not** create `design/` itself — its presence is the "design docs exist for this project" gate other skills key on.
+- Overwrites `.ok-planner/CLAUDE.md` with the canonical template at `scripts/ok-planner-CLAUDE.md` in a single `cp`. No read, no diff, no prompt — the file is skill-owned boilerplate and the template is authoritative.
+
+Idempotent. Re-running on a project already in compliance leaves the working tree unchanged at the git level (`mkdir -p` is silent on existing dirs; rewriting the same bytes leaves the content hash unchanged).
 
 ## Why this skill exists
 
 ok-planner artifacts split into two kinds with different rules:
 
-- **Project records, out of context by default** (`specs/`, `plans/`, `sketches/`, `history/`) — committed, versioned parts of the project, but not the source of truth and not to be pulled into context unprompted (reading `history`/`sketches` without a directing goal is context pollution). This is a context-discipline rule, not a commit rule.
-- **Durable design docs** (`design/`) — the project's canonical noun catalog. A source of truth with the same weight as code; mutated only through plan execution.
+- **Project records, out of context by default** (`specs/`, `plans/`, `sketches/`, `history/`) — committed, versioned parts of the project, but not the source of truth and not to be pulled into context unprompted (reading `history/`/`sketches/` without a directing goal is context pollution). This is a context-discipline rule, not a commit rule.
+- **Durable design docs** (`design/`) — the project's canonical durable model: concepts, stories, decisions, and tensions catalogs. A source of truth with the same weight as code; mutated only through plan execution.
 
 Putting both under `.ok-planner/` with an embedded `CLAUDE.md` signals to any agent that wanders in: this is the planner's directory, treat it correctly, don't pull the records into context unprompted or "fix" them, and don't edit the design docs outside the plan pipeline.
 
-The CLAUDE.md template evolves alongside the skills. `affirm` keeps the embedded copy aligned with the current template by overwriting it wholesale on every run. The file is skill-owned boilerplate — `.ok-planner/` is the planner's own folder — so there are no user customizations to preserve and no confirmation to ask for.
+The `CLAUDE.md` template evolves alongside the skills. The script keeps the embedded copy aligned by overwriting it wholesale on every run. There are no user customizations to preserve and no confirmation to ask for — `.ok-planner/` is the planner's own folder.
 
 ## When invoked
 
@@ -31,335 +52,10 @@ Called by other ok-planner skills as their first step when they're about to prod
 
 Also safe for the user to invoke directly via `/affirm`. There is one command; it always does the same thing.
 
-## Layout
-
-```
-.ok-planner/
-  CLAUDE.md          # tells agents how to treat this folder; written by this skill
-  specs/             # active specs (from brainstorm) — out of context by default
-  plans/             # active plans + their -divergences.md (from write-plan, execute-*) — out of context by default
-  sketches/          # design sketches (from sketch) — out of context by default
-  design/            # durable design docs; bootstrapped by /discover-design,
-                     # mutated only by /execute-plan via spec-directed plan tasks
-                     # substructure created by /discover-design:
-                     #   _discover/        as-is scaffolding
-                     #   concepts/         load-bearing nouns (definition, purpose, boundaries, invariants)
-                     #   tensions/         catalog of muddy / unspecified / conflicting bits
-                     #   review-notes.md   agent-confessed uncertainty for /refine-design
-  history/
-    specs/           # archived specs (after plan execution completes) — out of context by default
-    plans/           # archived plans + divergence reports (after plan execution completes) — out of context by default
-    sketches/        # archived sketches (after /brainstorm produces a spec from them) — out of context by default
-```
-
-Most subdirectories are project records kept out of context by default — committed, but read only when a goal directs you there. The `design/` subdirectory is the exception: it's the durable design docs — a concept catalog plus tensions, a source of truth with the same weight as code, read freely. Mutated only through plan execution. The embedded `CLAUDE.md` explains this distinction so future agents treat the directories correctly.
-
-## Process
-
-1. **Resolve the project root.** Use the working directory the user invoked Claude Code from (`pwd`). If a `.git` directory is found at or above that, use the directory containing `.git` as the root. Otherwise use the working directory.
-
-2. **Affirm directories.** Create any missing directories under `.ok-planner/`:
-   - `.ok-planner/specs/`
-   - `.ok-planner/plans/`
-   - `.ok-planner/sketches/`
-   - `.ok-planner/design/`
-   - `.ok-planner/history/specs/`
-   - `.ok-planner/history/plans/`
-   - `.ok-planner/history/sketches/`
-
-   Use `mkdir -p` so existing directories are left untouched.
-
-3. **Affirm `.ok-planner/CLAUDE.md`.** This file is skill-owned boilerplate, not user content. `.ok-planner/` is the planner's own folder and the embedded `CLAUDE.md` is regenerated from the template below — users are not expected to edit it, so there is nothing to preserve and nothing to merge.
-
-   **Always overwrite the whole file in a single write.** Write the complete template (Process step 4) to `.ok-planner/CLAUDE.md` in one whole-file write, unconditionally — whether or not the file already exists, and regardless of how its current contents differ.
-
-   **Do not** read the existing file first, **do not** diff it against the template, and **do not** bring it up to date with line-by-line edits. There is nothing to preserve, so reconciling the old contents against the new is pure wasted work — reading both copies and editing inline is exactly the behavior this step forbids. One write of the full template replaces whatever was there.
-
-   The repeat is cheap and safe: if the file was already current, writing identical bytes is a no-op at the git level (the content hash is unchanged, so `git status` shows nothing). That is why the write is unconditional rather than guarded behind a comparison — the comparison is what tempts an agent into reading both versions and editing line by line, and it buys nothing here. No diff, no prompt, no confirmation — the template is authoritative and the file is not the user's to customize.
-
-   This behavior is identical whether affirm was invoked by the user via `/affirm` or by another skill mid-pipeline — it never interrupts a run to ask about this file.
-
-4. **Template content for `.ok-planner/CLAUDE.md`.**
-
-   The point of this file is to give any agent that wanders into `.ok-planner/` an explicit, in-folder instruction to leave it alone (out of context by default) or to treat it as oracle-with-discipline (design docs).
-
-   ````markdown
-   # .ok-planner — project records (out of context by default), with one durable source-of-truth subdirectory
-
-   This directory holds two kinds of content with different lifecycles
-   and different rules for how agents should treat them.
-
-   **Project records, out of context by default** (`specs/`, `plans/`,
-   `sketches/`, `history/`): committed, versioned parts of the project —
-   but not the source of truth, and not to be pulled into context
-   unprompted. Reading `history/` (a past moment) or `sketches/` (a
-   speculative or in-progress future) without a directing goal is context
-   pollution when reasoning about the project as it is now. This is a
-   context-discipline rule, not a commit rule — these are committed; some
-   are temporary planning input removed after use; all stay out of
-   context until a goal directs you to them.
-
-   **Durable design docs** (`design/`): the project's canonical
-   noun catalog — load-bearing concepts with definitions, purposes,
-   boundaries, and invariants — plus a tensions catalog tracking
-   what is unresolved. Code references the design (via `@concept:`
-   or equivalent annotations at points of enforcement), not the
-   other way around. The design docs are **a source of truth with
-   the same weight as code**: they describe the project as it
-   stands. Like code, they change only through plan execution —
-   `execute-plan` is the one skill that mutates them. Source-of-truth, read freely — NOT an out-of-context record.
-
-   ## Default behavior for agents
-
-   ### Project records, out of context by default (`specs/`, `plans/`, `sketches/`, `history/`)
-
-   Unless the user or an active skill (e.g. `/brainstorm`,
-   `/write-plan`, `/execute-plan`, `/review-plan`, `/sketch`)
-   explicitly directs you here, keep these subdirectories out of context:
-
-   - **Do not consult these files to understand the project.** They
-     reflect what someone was thinking at a moment in time. The
-     codebase is the source of truth; these artifacts are not.
-   - **Do not include `.ok-planner/` files in general repository
-     exploration**, codebase walkthroughs, or "how does this project
-     work" research. Skip them the same way you would skip a build
-     directory.
-   - **Do not propose updating, refreshing, or reconciling these files
-     with the current state of the code.** Drift between an old plan
-     and the current code is expected and fine. The artifact stays as
-     it was written.
-   - **Do not edit, rename, move, or delete files here on your own
-     initiative**, even if they look stale, redundant, or wrong.
-
-   #### When it is OK to read or touch these records
-
-   - The user explicitly asks (e.g. "update the spec at
-     .ok-planner/specs/foo.md", "what did we decide about X — check
-     the old plan").
-   - An ok-planner skill is running and directs you to read or write
-     specific files here as part of its documented process.
-
-   In those cases, do exactly what the user or skill asked, then stop.
-   Do not expand the scope to "while I'm in here, I'll also fix..."
-
-   ### Durable design docs (`design/`)
-
-   The `design/` subdirectory is **the exception**. It holds the
-   project's canonical concept catalog — load-bearing nouns with
-   definitions, purposes, boundaries, and invariants — plus a
-   tensions catalog tracking what's still muddy.
-
-   **Design docs change only through plan execution, like code.**
-   The reason: if the design docs and the code can change
-   independently, they drift, and the project ends up in an
-   inconsistent state. To prevent that, *all* design-doc changes
-   ride the same pipeline as code — a spec captures the change,
-   `write-plan` turns it into tasks, and `execute-plan` applies it.
-
-   Skills relate to the design docs in three modes:
-
-   1. **Modifier**: `execute-plan` is the one skill that mutates
-      the design docs, carrying out plan tasks that the spec
-      directs. (`discover-design` is the bootstrap exception: it
-      creates initial design docs for a project that has none, or
-      extends the catalog when new areas are discovered. It does
-      not modify existing user-edited content.)
-
-   2. **Read-only oracle**: `review-holistic` reads the design
-      docs as sacrosanct and uses them to drive whole-codebase
-      convergence. There is no per-scope spec for that kind of
-      review, so the design docs themselves are the source of
-      truth.
-
-   3. **Read-only consumers**: every other skill reads the design
-      docs without writing.
-      - `brainstorm` and `refine-design` read them to understand
-        "how the project is now," and capture any needed changes
-        **in the spec they produce** (under a `## Design changes`
-        section). The changes get applied later, by
-        `execute-plan`.
-      - `merge` reads the docs against a fresh merge or rebase
-        and **surfaces findings** for the user — mechanical
-        issues, drift, semantic conflicts. Resolution is
-        human-driven and goes through the spec pipeline; merge
-        does not write fixes to the design docs itself.
-      - `write-plan` reads to plan spec-directed mutations as
-        first-class tasks.
-      - `review-work` and `review-plan` read to verify that
-        spec-directed mutations landed correctly. `review-work`
-        additionally runs an independent design-doc compliance
-        cycle that audits the design docs against the concept
-        self-containment rule (see below).
-
-   Layout (created by `/discover-design`):
-   - `_discover/` — as-is scaffolding. Wide, detailed, possibly
-     redundant. Discarded once the design stabilizes.
-   - `concepts/` — one concept per file. Mutated in place by
-     `execute-plan` per the spec's `## Design changes` section;
-     Notes section is append-only.
-   - `tensions/` — one tension per file. Tensions move to
-     `tensions/_resolved/` when `execute-plan` carries out a
-     resolution-bearing spec.
-   - `review-notes.md` — agent-confessed uncertainty from the
-     `/discover-design` run (judgment calls, suspected concepts,
-     unresolved fix-loop issues). Consumed by `/refine-design`;
-     not durable.
-
-   - **`review-holistic` consults `design/concepts/`** when forming
-     judgments — a finding that contradicts a documented boundary
-     or invariant needs an explicit "the documented concept is
-     wrong because..." rather than a flag against the code.
-     `brainstorm` and `refine-design` consult to understand current
-     state; the spec captures any needed changes. Other skills do
-     not consult as oracle.
-   - **Concept files (`concepts/<slug>.md`) are MUTABLE during
-     `execute-plan`.** Editing Definition / Purpose / Boundaries /
-     Invariants in place is the normal mode — this is the
-     prescriptive design, not an ADR journal. The Notes section is
-     the append-only audit trail. Mutations ride alongside the
-     code changes that conform to them and stay reversible until
-     the plan executes.
-   - **DO NOT delete concept files on your own initiative**, even
-     if they look stale. Use `/merge` to surface drift; resolution
-     goes through the spec pipeline.
-   - **DO NOT mutate `tensions/` entries outside the spec
-     pipeline** — those entries record what the project considers
-     unresolved.
-
-   #### Concept self-containment rule
-
-   Concept body is **self-contained**. The design owns the
-   definition; code references the design via `@concept:`
-   annotations, not the other way around. A refactor that moves
-   files around does not invalidate a concept, and an external
-   doc that moves to another repo does not orphan one. To make
-   that durable, citations in concept body are restricted to
-   forms that survive the codebase moving.
-
-   **The rule applies to frontmatter as well as body.** A
-   `references:` frontmatter field that lists `_discover/...`
-   artifacts, spec paths, sketch paths, or any other file-form
-   citation is the same durability problem the rule exists to
-   prevent — those paths rot when the scaffolding is retired,
-   when specs are archived, or when the repo is reorganized.
-   Once a concept is baked, the lineage that produced it lives
-   in the `_discover/` scaffolding (as history) and in the
-   body's dated Notes entries (which cite specs by slug);
-   frontmatter is restricted to slug-form metadata only:
-   `concept:` / `tension:`, `status:`, `aliases:` (list of
-   names), and for tensions `category:` and `affects:` (list
-   of concept slugs). Path-form `references:` does not belong
-   in concept or tension frontmatter; if a `discover-design`
-   or earlier-version run wrote one, strip it.
-
-   **Allowed in concept body:**
-   - Other concept slugs (`see also: claim-handle`,
-     `concept:claim-handle`).
-   - Annotation IDs the codebase uses (`@blessed-invariant: N`,
-     `@agent-contract: X`) — IDs are stable across file moves;
-     paths are not.
-   - Spec slugs in dated Notes entries
-     (`spec:YYYY-MM-DD-<topic>`).
-   - Dates.
-
-   **Disallowed in concept body:**
-   - File or directory paths in any form (`foo/bar.go`,
-     `services/widget/`, `pkg:github.com/...`, bare URLs,
-     `code:foo.go::Symbol`, "the code at X" pointers).
-   - References to external documentation (`docs/...`, READMEs,
-     CHANGELOG, sibling-repo paths).
-   - Quoted code, quoted lint-config allowlists, quoted external
-     prose.
-   - "Owns / Does NOT own" sections that name code paths.
-     Boundaries is the in-vs-out section; it names neighbor
-     concepts by slug.
-
-   **For tensions:** the same self-containment rule applies to
-   `## Resolution candidates` — resolutions become spec
-   instructions and live forward in time, so they must be
-   path-free. `## What is muddy` and `## Evidence` are
-   point-in-time snapshots and may cite code as evidence.
-
-   The canonical statement of the rule lives in
-   `ok-planner:discover-design`'s SKILL.md ("Concept
-   self-containment rule" and "Tension surface rule"). The
-   `review-work` skill's design-doc compliance cycle audits the
-   live design docs against this rule on every review.
-
-   #### Consulting the design docs: read `concepts.md` first
-
-   When `review-holistic`, `brainstorm`, or `refine-design` is
-   reading the design docs, the lookup pattern is:
-
-   1. **Read `.ok-planner/design/concepts.md` first** — a small
-      auto-generated TOC of every concept with a one-sentence
-      definition. It is the single artifact you can read in one
-      shot to know what concepts the project traffics in.
-   2. **Grep for `@concept:` annotations in the code under
-      consideration** — these are inline citations that say "this
-      site implements concept X." Use `rg '@concept:' <path>` to
-      find them locally; use `rg '@concept: <slug>'` to find every
-      enforcement site for a specific concept.
-   3. **Read `concepts/<slug>.md`** for the full definition
-      (purpose, boundaries, invariants) for any concept surfaced
-      by step 1 or 2 that's load-bearing for the work at hand.
-
-   #### `@concept:` annotations
-
-   `@concept: <slug>` annotations in source code are inline
-   citations marking sites where a concept is enforced. They
-   make the next agent's lookup cheap. Same granularity
-   discipline as `@blessed-invariant`: annotate where the concept
-   is enforced or expressed, not every file that happens to touch
-   it. No carpet-bombing.
-
-   - **`execute-plan`** adds or modifies annotations when a plan
-     task explicitly directs (the spec usually surfaces this when
-     a concept is being introduced or changed).
-   - **`discover-design`** can seed initial annotations on
-     bootstrap.
-   - **`review-holistic`** notes "consulted concept: X
-     (annotation missing at <site>)" in its findings; a
-     subsequent `execute-plan` run leaves the annotation when
-     applying the fix.
-
-   No other skill annotates on its own. Annotations accrete
-   through `execute-plan` runs.
-
-   ## Layout
-
-   - `specs/` — active specs from `/brainstorm` and
-     `/refine-design` (out of context by default)
-   - `plans/` — active plans from `/write-plan`, plus their
-     `-divergences.md` reports written by `/execute-plan`'s
-     divergence auditor (out of context by default)
-   - `sketches/` — design sketches from `/sketch` (out of context by default)
-   - `design/` — durable design docs (concepts + tensions; mutated
-     only by `/execute-plan` via spec-directed plan tasks;
-     bootstrapped by `/discover-design`)
-   - `history/specs/` and `history/plans/` — specs and plans
-     archived here automatically when an execute-* skill finishes
-     a plan (out of context by default)
-   - `history/sketches/` — sketches archived here automatically by
-     `/brainstorm` when it produces a spec from them (out of context by default)
-   ````
-
-5. **Report back** to the calling skill (or user, if invoked directly) with one short line stating which directories were created vs. already present, plus that `CLAUDE.md` was written from the current template. Do not produce a long explanation. Do not claim to have detected drift or diffed the file — the write is unconditional, so there is nothing to report about whether the contents changed.
-
-## Reporting
-
-Keep output minimal. Examples:
-
-- First run: "Affirmed `.ok-planner/` layout (created dirs, wrote CLAUDE.md)."
-- Re-run, dirs already there: "Affirmed `.ok-planner/` layout (dirs already present, CLAUDE.md written from template)."
-- Partial: "Created `.ok-planner/sketches/` and `.ok-planner/history/`; other dirs already present; CLAUDE.md written from template."
-
-The calling skill should continue immediately after this skill reports.
-
 ## What this skill does NOT do
 
 - Does not modify `.gitignore`. Whether `.ok-planner/` is tracked in git is the user's decision.
 - Does not modify any file under `.ok-planner/` other than `CLAUDE.md`. It overwrites `CLAUDE.md` (skill-owned boilerplate) but never touches specs, plans, sketches, design docs, or history.
 - Does not validate the contents of existing artifacts.
-- Does not rename or migrate artifacts from other locations (e.g., `docs/specs/` from older versions of these skills). Migration is a one-time user-driven task, not something this skill handles silently.
-- Does not preserve local edits to `.ok-planner/CLAUDE.md`. The file is not a user-customization surface — it is regenerated from the template, and any drift is overwritten on the next affirm. Project-specific guidance belongs in the project's own `CLAUDE.md` at the repo root, not in `.ok-planner/CLAUDE.md`.
+- Does not rename or migrate artifacts from other locations (e.g., `docs/specs/` from older versions of these skills). Migration is a one-time user-driven task.
+- Does not preserve local edits to `.ok-planner/CLAUDE.md`. The file is not a user-customization surface — it is regenerated from the template on every run. Project-specific guidance belongs in the project's own `CLAUDE.md` at the repo root, not in `.ok-planner/CLAUDE.md`.

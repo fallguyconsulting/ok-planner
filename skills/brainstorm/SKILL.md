@@ -29,13 +29,14 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 2. **Establish the goal** -- if context from the conversation makes it clear what to brainstorm, proceed. Otherwise ask the user what they want to design. If invoked from `ok-planner:refine-design`, the goal has already been established in the conversation (a brief naming: the session's tension queue with picked resolution shapes, any tensions rejected during intake, affected concept files, code paths needing reconciliation, review-notes outcomes, and a proposed spec slug) — recognize that brief as the goal and proceed. Every item in the brief that touches the design docs must end up under `## Design changes` in the spec. If the brainstorm is initiated from one or more existing sketches under `.ok-planner/sketches/` — the user names one, or adopts one surfaced during context exploration — note them as the brainstorm's **source sketches**: the spec supersedes them, and they get archived once it is approved (see "Source sketches").
 3. **Explore project context** -- check files, docs, recent commits, and (if it exists) the design docs under `.ok-planner/design/` to understand "how the project is now"
 4. **Ask clarifying questions** -- one at a time, prefer multiple choice
-5. **Propose 2-3 approaches** -- with trade-offs and your recommendation
-6. **Present design** -- scaled to complexity, get user approval section by section. Surface any design-doc impacts (concept additions/mutations, tension resolutions or new tensions) as part of the discussion; they go into the spec, not into the design docs directly.
-7. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`. If the work touches the design docs, include a `## Design changes` section enumerating the mutations execute-plan will apply.
-8. **Spec review** -- dispatch reviewer subagent, fix issues, re-review until clean
-9. **User reviews spec** -- ask user to review before proceeding
-10. **Archive source sketches** -- if the brainstorm had source sketches: capture any deferred content in a new sketch, then move each source sketch to `.ok-planner/history/sketches/` (see "Source sketches"). Skip if there were none.
-11. **Transition** -- invoke ok-planner:write-plan
+5. **Lock the user outcomes first** -- before proposing approaches or any mechanism, draft the user-outcome stories — each with Acceptance, Falsifier, and Proof — and get the user's explicit approval on them. The mechanism discussion (approaches, architecture, components, technical decisions) follows once the stories are agreed. This keeps "what the feature is and how we'll know it works" a separate, settled conversation from "how we'll build it." See "User outcomes" below for the shape.
+6. **Propose 2-3 approaches** -- with trade-offs and your recommendation
+7. **Present design** -- scaled to complexity, get user approval section by section. Surface any design-doc impacts (concept additions/mutations, tension resolutions or new tensions) as part of the discussion; they go into the spec, not into the design docs directly.
+8. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`. If the work touches the design docs, include a `## Design changes` section enumerating the mutations execute-plan will apply.
+9. **Spec review** -- dispatch reviewer subagent, fix issues, re-review until clean
+10. **User reviews spec** -- ask user to review before proceeding
+11. **Archive source sketches** -- if the brainstorm had source sketches: capture any deferred content in a new sketch, then move each source sketch to `.ok-planner/history/sketches/` (see "Source sketches"). Skip if there were none.
+12. **Transition** -- invoke ok-planner:write-plan
 
 ## What a spec is
 
@@ -70,21 +71,64 @@ exists to serve the stories; the stories are not derived from it.
 
 Shape each story as:
 
-> **S-«slug»** — As «role», I can «capability», so that «business value».
-> **Acceptance:** «real input» reaches the running system → «real
-> observable effect» appears at «real surface».
+> **STORY-«slug»** — As «role», I can «capability», so that «business value».
+> **Acceptance:** «what the user does, in their terms» → «what the user
+> observes happening».
+> **Falsifier:** «the user-observable absence that would prove this story
+> NOT delivered».
+> **Proof:** «demo | example | proof | all-of-the-above» — «what the
+> proof must exhibit to a third party».
 
 The acceptance is stated at the **user-outcome level**, in language a
-user of the product would recognize. The entry point is the real one
-(the HTTP route, the CLI verb, the wire message — not "call the
-handler"), and the outcome is a real one (a persisted state, a returned
-response, a downstream effect — *not* "the function returns the right
-struct," *not* "the handler is registered," *not* "returns 200"). The
-component that *delivers the value* is real: if the story's whole point
-is that some worker, executor, sensor, or subscriber does real work, the
-acceptance drives a real one and names the real effect to observe. A
-canned stub standing in for the thing the story exists to exercise is
-not an acceptance.
+user of the product would recognize. It names what the user does
+(the action in the user's terms — "submit a claim," "publish a
+digest," "acquire a hold") and what they observe (a persisted state
+they can see, a returned result they can read, a downstream effect
+they can verify — *not* "the function returns the right struct,"
+*not* "the handler is registered," *not* "returns 200"). The
+component that *delivers the value* is real: if the story's whole
+point is that some worker, executor, sensor, or subscriber does real
+work, the acceptance names the real effect that component produces,
+and a canned stub standing in for it is not an acceptance.
+
+**Which delivery surface exposes the story is not part of the story.**
+Whether the user takes their action through an HTTP route, a CLI
+verb, a wire message, a scheduled job, or a UI is a **technical
+decision** — it lives in a `TD-` entry in the spec's `Technical
+decisions` section, not in the story. The story names the capability
+and the observable outcome; the TDs name how it is exposed. Splitting
+them this way keeps a story re-usable across surface changes (moving
+a feature from a CLI to a web UI is a TD change, not a story rewrite)
+and keeps API-shape decisions in the section the closing audit walks
+them in. Concretely: a story acceptance reads "the co-holder submits
+a claim and sees it persisted," not "POST /claims/{id} returns 201
+with the claim body."
+
+The **Falsifier** is the same outcome viewed from the opposite side —
+the concrete observation that would make a reviewer say "this story
+has not been delivered." Phrase it as a **user-observable absence**:
+the user takes the action and the promised result never appears; the
+result appears but is unrelated to their input; the result looks real
+but the underlying state is synthetic (a stub or canned response
+standing in for the value-delivering component's real work). Write it
+sharply enough that a reviewer reading the diff can point at a
+specific absence — not a generic "the feature doesn't work" and not
+the acceptance rephrased in the negative.
+
+The **Proof** is the artifact that exhibits the story working to a
+third party — a demo, an example, an executable proof, or all of the
+above. Its purpose is *delivery* (showing the work was done, at the
+moment of completion) — not regression protection, which is a
+separate concern handled elsewhere. A demo is a runnable artifact
+that walks through the feature; an example is a worked illustration
+showing how the feature is used and what it produces; a proof is an
+executable verification that asserts the outcome. The form is the
+user's call per story — pick what would actually convince a third
+party that the work was done. The proof's anti-hollow property is
+built into its purpose: it must *exhibit* the feature, not just
+check it, so it cannot easily collapse to a shape assertion, a
+registration check, or a green-from-birth filter. Same artifact in
+many cases, very different gravity on the writing.
 
 **The story set is the whole contract — floor and ceiling.**
 - *Floor:* every story must demonstrably happen end-to-end before the
@@ -93,17 +137,38 @@ not an acceptance.
 - *Ceiling:* nothing gets built that no story requires. The stories are
   the boundary — that is what the spec is *for*.
 
-**No feature is deferred.** A spec contains no "out of scope / non-goals
-/ V2 / future / later / deferred" for any *capability*. The pipeline
-treats such language as an un-sanctioned deferral, not a boundary — it is
-exactly how spec'd features historically ended up unbuilt. To bound
-scope, **omit the story** (or, if it came from a source sketch the user
-wants to keep for later, route it back to a sketch — see "Source
-sketches"); never write it into the spec as deferred. The boundary is
-decided once, at authoring, by which stories the spec contains — never
-re-decided during execution. (The "delivery process is out of scope — no
-PRs/commits/branches" exclusion above is unaffected: it bounds *process*,
-not a feature.)
+**No forward-looking content.** A spec describes only what will be
+built; there is no syntax for bounding scope other than omission. The
+spec contains no "out of scope," "non-goals," "future work," "V2,"
+"later," "deferred," "deliberately not addressing," or "open
+questions" — none of these describe work that will happen, so none
+of them are valid spec content. The pipeline treats such language as
+un-sanctioned deferral, not boundary — it is exactly how spec'd
+features historically ended up unbuilt.
+
+To bound scope: **omit the story** (or, if it came from a source
+sketch the user wants to keep for later, route it back to a sketch —
+see "Source sketches"); never write it into the spec as deferred.
+The boundary is decided once, at authoring, by which stories the
+spec contains — never re-decided during execution.
+
+The same rule applies to technical decisions: a decision is either
+made and recorded in the spec, or it is not in the spec. There is
+no "we'll decide this later" or "leaving this open for now." If a
+choice needs to remain open because the user has not decided, it
+is a tension that should be resolved via `/refine-design` before
+brainstorm proceeds — not a spec entry.
+
+**The agent does not propose omissions.** Scope is the user's call,
+surfaced by the user. The agent does not ask "should we leave X for
+later?" or "what if we deferred Y?" because doing so introduces
+the very framing this rule forbids. The agent writes only the stories
+the user actually wants and the technical decisions the user actually
+makes.
+
+(The "delivery process is out of scope — no PRs/commits/branches"
+exclusion above is unaffected: it bounds *process*, not a feature
+or a decision.)
 
 **Intent over literal text (the necessity rule).** The contract is each
 story's *intent*. Implementation must build whatever is **necessary** for
@@ -124,8 +189,85 @@ against a fake cannot satisfy.
 change — a pure refactor, docs- or concept-doc-only work, an internal
 mechanism no user reaches — has no user-outcome stories, and that is
 correct. The bar: does the running product do something observably
-different for a user? If yes, every such outcome is a story; if no, skip
-the section. When unsure, write the story.
+different for a user? If yes, every such outcome is a story; if no,
+skip the section. When unsure, write the story. (A story-less spec
+still carries its technical decisions and manifest — see below — so
+the closing audit still has something to walk.)
+
+## Technical decisions — atomic, enumerable
+
+The spec's mechanism (architecture, components, data flow, behavior,
+error handling, testing strategy) is captured as a list of **technical
+decisions** alongside any prose context. Each technical decision is
+a discrete item the closing auditor can pair with implementation —
+kept as decided, or diverged with reason — so every choice the spec
+made gets accounted for at the end of execute-plan.
+
+Shape each technical decision as:
+
+> **TD-«slug»** — «the decision named in plain words».
+> **Choice:** «the option the spec adopts».
+> **Rationale:** «one or two sentences on why».
+> **Alternatives:** «the options considered and rejected — only when
+> the spec wants to record them; omit when the choice is uncontested».
+
+Make each decision **atomic**: one decision per item. "Use X for
+persistence, Y for messaging, and Z for caching" is three decisions,
+not one. The closing audit pairs each TD with the implementation;
+lumping them together defeats the audit because "kept" and "diverged"
+cease to be well-defined.
+
+Prose context — architecture diagrams, data-flow narratives,
+behavior descriptions — is still welcome and useful. It illuminates
+decisions and provides connective tissue between them. The atomic
+TD list is what makes the audit possible; the prose is what makes
+the spec readable. Both belong.
+
+A spec without technical decisions is rare but legitimate — a
+docs-only spec, for example, may have stories with no architectural
+choices to record. When unsure, write the decision down: an atomic
+TD costs little and pays back at audit time.
+
+## Spec manifest — the contract the audit walks
+
+A spec closes with a **manifest** — a tight, single-place enumeration
+of everything the spec commits to. This is the literal index the
+completion auditor walks at the end of execute-plan: every story
+gets paired with its proof artifact, every technical decision gets
+paired with the implementation that honored or diverged from it.
+The three sections of the closing report (proof walkthrough,
+decisions kept, decisions diverged) are mutually exhaustive against
+this manifest — together they cover 100% of it.
+
+The manifest is short by design: one bullet per item, slug and a
+one-line summary. The full content of each item lives in its
+relevant section above; the manifest is the index, not a restatement.
+
+```
+## Manifest
+
+### Stories
+- **STORY-claim-co-holder** — co-holder can complete a claim end-to-end (Proof: demo)
+- **STORY-stale-claim-recovery** — stale claims auto-recover within 60s (Proof: executable test)
+
+### Technical decisions
+- **TD-persistence** — Postgres with `pgx` driver
+- **TD-claim-recovery-cadence** — 30s tick interval
+- **TD-handler-registration** — explicit registration, no auto-discovery
+```
+
+If the spec touches durable design docs (see "Capturing design changes
+in the spec" below), the manifest also enumerates which docs change —
+new or mutated stories landing in `design/stories/`, new or mutated
+decisions landing in `design/decisions/`, concept mutations, tension
+moves. Same shape: slug + one-line summary, with the full delta
+captured in `## Design changes`.
+
+The manifest is what makes deferrals structurally impossible: there
+is no syntax for "in the manifest but not built." Every item in the
+manifest must be built, exhibited (for stories), or honored/recorded
+(for decisions). The closing audit checks exactly this; a missing
+pair is a blocker, not a divergence.
 
 ## Asking Questions
 
@@ -179,21 +321,34 @@ In practice:
 
 ## Design docs awareness (read-only)
 
-If `.ok-planner/design/concepts/` exists, it is the project's
-canonical concept catalog and a source of truth equal in weight
-to the code. **Brainstorm is read-only against the design docs.**
-Mutations happen later, via `execute-plan` carrying out a
-spec-directed plan. Read the docs now; capture changes in the
-spec; let the pipeline apply them.
+If `.ok-planner/design/` exists, it is the project's canonical
+durable model and a source of truth equal in weight to the code.
+The model has four kinds of artifact, each self-contained (no file
+paths, no `code:`/`pkg:` citations, no external-doc references):
+
+- `concepts/` — load-bearing nouns with definitions, boundaries,
+  invariants
+- `tensions/` — open ambiguities and tradeoffs awaiting resolution
+- `stories/` — durable user-outcome stories (those that have been
+  shipped and now describe what the product does)
+- `decisions/` — durable technical decisions (architectural and
+  mechanism choices the project has made)
+
+**Brainstorm is read-only against the design docs.** Mutations
+happen later, via `execute-plan` carrying out a spec-directed
+plan. Read the docs now; capture changes in the spec; let the
+pipeline apply them.
 
 During step 3 (Explore project context):
 
 1. Read `.ok-planner/design/concepts.md` — the auto-generated TOC,
    always small, always one-shot-readable. Now you know what
    concepts exist.
-2. Grep for `@concept:` annotations in the area you're exploring
-   (`rg '@concept:' <path>`). Each marks a load-bearing site.
-3. Read `concepts/<slug>.md` in full for any concept surfaced by
+2. Grep for `@concept:`, `@story:`, and `@decision:` annotations
+   in the area you're exploring (`rg '@(concept|story|decision):' <path>`).
+   Each marks a load-bearing site for the named artifact.
+3. Read `concepts/<slug>.md`, `stories/<slug>.md`, and
+   `decisions/<slug>.md` in full for any artifact surfaced by
    step 1 or 2 that the brainstorm's subject area touches.
 4. Check `.ok-planner/design/tensions/` for open tensions in the
    same area — they may already describe the muddiness the
@@ -201,19 +356,20 @@ During step 3 (Explore project context):
    to run `/refine-design` for those tensions instead of (or
    alongside) this brainstorm.
 
-Use the catalog's terms in the design and respect its stated
-boundaries and invariants. If the design would change a concept's
-shape, add a new concept, retire one, or resolve/raise a tension,
-capture that as a `## Design changes` entry in the spec (see
-"Capturing design changes in the spec" below). Do not mutate
-`concepts/`, `tensions/`, or any other file under
+Use the model's terms in the design and respect its stated
+boundaries, invariants, story acceptances, and recorded decisions.
+If the design would change a concept's shape, add a new concept,
+retire one, resolve or raise a tension, introduce or mutate a
+story, or introduce or mutate a decision, capture that as a
+`## Design changes` entry in the spec (see "Capturing design
+changes in the spec" below). Do not mutate `concepts/`,
+`tensions/`, `stories/`, `decisions/`, or any other file under
 `.ok-planner/design/` during brainstorm — those are execute-plan's
 to touch.
 
-If `.ok-planner/design/concepts/` doesn't exist, this skill
-operates without the design-docs context. Do not create it as a
-side effect; do not suggest `/discover-design` unless the user
-asks.
+If `.ok-planner/design/` doesn't exist, this skill operates
+without the durable-model context. Do not create it as a side
+effect; do not suggest `/discover-design` unless the user asks.
 
 ## Working in Existing Codebases
 
@@ -238,7 +394,7 @@ and this brainstorm is not the place to do it. Do not mention
 the absence; do not suggest `/discover-design` unless the user
 asks.
 
-While presenting the design (step 6), identify two kinds of
+While presenting the design (step 6), identify four kinds of
 impact:
 
 **Concept impacts** — the spec sharpens, splits, merges,
@@ -251,12 +407,36 @@ introduces, or retires a concept. Candidate if ANY of these:
 - It mutates Definition / Purpose / Boundaries / Invariants of
   an existing concept.
 
+**Story impacts** — the spec creates, mutates, or retires a
+durable user-outcome story in `design/stories/`. Candidate if ANY
+of these:
+- It introduces a new user-outcome the project did not have (every
+  story in the spec's User outcomes section is a new story landing
+  in `design/stories/` once execute-plan finishes).
+- It mutates the Acceptance, Falsifier, or Proof of an existing
+  story (the story's contract has changed).
+- It retires a story (a capability the project no longer offers).
+
+**Decision impacts** — the spec creates, mutates, or retires a
+durable technical decision in `design/decisions/`. Candidate if
+ANY of these:
+- It introduces a new technical decision (every TD in the spec's
+  Technical decisions section is a new decision landing in
+  `design/decisions/` once execute-plan finishes).
+- It mutates the Choice, Rationale, or Alternatives of an existing
+  decision (the project has reconsidered).
+- It retires a decision (the choice is no longer relevant —
+  typically because a concept around it was retired).
+
 **Tension impacts** — the spec touches the tensions catalog.
 Candidate if ANY of these:
 - It resolves an open tension (record which one and how).
-- It surfaces a new tension the project should catalog (a choice
-  the spec doesn't resolve, an inconsistency, an
-  acknowledged-but-unresolved tradeoff).
+- It surfaces a new tension the project should catalog — but only
+  if the tension is *adjacent* to this spec, not load-bearing for
+  it. A tension load-bearing for the current work must be resolved
+  via `/refine-design` before brainstorm proceeds; the spec
+  cannot itself depend on an unresolved choice (per "No
+  forward-looking content" above).
 
 A candidate does NOT belong if it's a purely local implementation
 detail. The bar: would a reviewer benefit from knowing this when
@@ -271,12 +451,24 @@ enough that execute-plan can apply it mechanically. Example:
 ## Design changes
 
 - Concept: mutate `concepts/store.md` in place. Replace the
-  Boundaries section with: ... (full new text). Append a Notes
-  entry: `<date> — Boundary narrowed per spec <spec-slug> to
-  exclude in-memory mocks.`
+  Boundaries section with: ... (full new text, describing the
+  new boundary as it stands — no "was X" or "changed from Y").
 - Concept: create `concepts/claim-producer.md` from the template
   in `ok-planner:discover-design`'s SKILL.md, with Definition: ...,
   Purpose: ..., Boundaries: ..., Invariants: ....
+- Story: create `stories/claim-co-holder.md` capturing this spec's
+  STORY-claim-co-holder verbatim — role, capability, business
+  value, Acceptance, Falsifier, Proof.
+- Story: mutate `stories/stale-claim-recovery.md` in place. Replace
+  the Acceptance section with: ... (full new text).
+- Decision: create `decisions/persistence.md` from the template
+  in `ok-planner:discover-design`'s SKILL.md, capturing this
+  spec's TD-persistence: Choice: Postgres with `pgx`. Rationale:
+  ... Alternatives considered: ...
+- Decision: mutate `decisions/claim-recovery-cadence.md` in place.
+  Replace the Choice section with `30s tick interval` (state it
+  as the current choice — no parenthetical "(was 60s)" or
+  reference to the prior cadence).
 - Tension: resolve `tensions/store-vs-claim-producer.md`. Move
   the file to `tensions/_resolved/store-vs-claim-producer.md`
   with `status: resolved` and a `resolution:` block summarizing
@@ -286,33 +478,43 @@ enough that execute-plan can apply it mechanically. Example:
   status: open and the muddiness described as: ....
 ```
 
+Each bullet rewrites the affected section to reflect the new
+state. Do **not** add a `## Notes`, `## History`, or dated
+audit-trail entry to any artifact — the design docs are
+current-state only (see the "Current-state-only rule" in
+`ok-planner:discover-design`'s SKILL.md). The git commit
+carries the lineage. Do not write "previously called X",
+"used to be Y", "changed per spec Z", or similar
+backward-looking language into the artifact body.
+
 If the spec produced no design-doc impacts (small specs often
 won't), don't add a `## Design changes` section.
 
-**Concept self-containment in spec-driven mutations.** When a
-`## Design changes` bullet mutates a concept's body — new or
-rewritten Definition / Purpose / Boundaries / Invariants — the
-new body must follow the concept self-containment rule from
-`ok-planner:discover-design`'s SKILL.md ("Concept
-self-containment rule"). TL;DR: concept body has no file paths,
-no `code:`/`pkg:` citations, no external-doc references
-(`docs/...`, READMEs, sibling-repo paths), no quoted code or
-lint-config allowlists, no "Owns / Does NOT own" sections that
-name code paths. Allowed citations are other concept slugs,
-annotation IDs, spec slugs in dated Notes entries, and dates.
+**Self-containment in spec-driven mutations.** When a
+`## Design changes` bullet creates or mutates the body of a
+concept, story, or decision — new or rewritten Definition /
+Purpose / Boundaries / Invariants (concepts), Acceptance /
+Falsifier / Proof (stories), Choice / Rationale / Alternatives
+(decisions) — the new body must follow the self-containment rule
+from `ok-planner:discover-design`'s SKILL.md. TL;DR: the body has
+no file paths, no `code:`/`pkg:` citations, no external-doc
+references (`docs/...`, READMEs, sibling-repo paths), no quoted
+code or lint-config allowlists, no "Owns / Does NOT own" sections
+that name code paths. Allowed citations are other artifact slugs
+(concept / story / decision) and annotation IDs.
 
 State the new section text directly in the bullet; do not phrase
 the mutation as "see `foo.go`" or "matches `docs/...`" or "the
-canonical impl lives at `pkg:...`". If a tension's resolution
-shape can't be stated as concept-doc + code-discipline changes
-without naming a path, the resolution isn't ready — sharpen it
-before writing the spec.
+canonical impl lives at `pkg:...`". If a story's Acceptance or
+a decision's Rationale can't be stated path-free, the artifact
+isn't ready to land in the durable model — sharpen it before
+writing the spec.
 
 The same rule applies to tension files the spec creates or
 modifies: `## Resolution candidates` sections in tensions are
 path-free; `## What is muddy` and `## Evidence` can cite code
-as evidence. See the "Tension surface rule" in the
-extractor prompt.
+as evidence. See the "Tension surface rule" in the extractor
+prompt.
 
 ## Writing the spec and reviewing it
 
@@ -361,17 +563,22 @@ Agent (general-purpose):
 
   ## Check against the design docs (if present)
 
-  If `.ok-planner/design/concepts/` exists, consult it. Brainstorm
-  is where specs are written against the design docs, so this
-  review is the natural place to catch mismatches before the spec
-  is approved. Downstream skills do not re-check the spec against
+  If `.ok-planner/design/` exists, consult it. Brainstorm is where
+  specs are written against the durable model, so this review is
+  the natural place to catch mismatches before the spec is
+  approved. Downstream skills do not re-check the spec against
   the design docs.
 
   1. Read `.ok-planner/design/concepts.md` (the TOC).
   2. For concepts the spec touches by name or by area, read
      `concepts/<slug>.md` in full.
-  3. Check `.ok-planner/design/tensions/` for open tensions in the
-     same area.
+  3. For stories the spec touches (creates, mutates, or relies on
+     as already-shipped behavior), read `stories/<slug>.md` in
+     full.
+  4. For decisions the spec touches (creates, mutates, or relies
+     on as already-made), read `decisions/<slug>.md` in full.
+  5. Check `.ok-planner/design/tensions/` for open tensions in
+     the same area.
 
   Flag:
   - The spec uses a load-bearing noun differently than its concept
@@ -380,33 +587,55 @@ Agent (general-purpose):
   - The spec proposes work that would violate a stated invariant
     or cross a stated boundary, without addressing the change in
     a `## Design changes` section.
+  - The spec contradicts an existing story's Acceptance or Proof
+    without a `## Design changes` entry that mutates the story.
+  - The spec contradicts an existing decision's Choice without a
+    `## Design changes` entry that mutates the decision.
   - The spec resolves or contradicts an open tension without a
     `## Design changes` entry that records the resolution and
     moves the tension file appropriately.
   - The spec introduces a new load-bearing noun without a
     `## Design changes` entry creating the concept file.
+  - The spec's User outcomes contain a story but `## Design
+    changes` has no entry creating the corresponding
+    `stories/<slug>.md` (every new story in the spec is a new
+    durable story landing in `design/stories/`).
+  - The spec's Technical decisions contain a TD but `## Design
+    changes` has no entry creating the corresponding
+    `decisions/<slug>.md` (every new TD in the spec is a new
+    durable decision landing in `design/decisions/`).
   - A `## Design changes` section exists but is incomplete (e.g.,
-    references a concept mutation without saying which file or
-    what changes) — execute-plan needs precise instructions.
-  - A `## Design changes` bullet mutates concept body text but
-    the new text violates the concept self-containment rule
-    (see `ok-planner:discover-design`'s SKILL.md, "Concept
-    self-containment rule"): cites a file path, names an
-    external doc, quotes code or a lint-config allowlist, or
-    introduces an "Owns / Does NOT own" section that cites
-    paths. Flag the offending bullet and the offending
-    citation; the fix is to rewrite the new body as path-free
-    prose.
+    references a mutation without saying which file or what
+    changes) — execute-plan needs precise instructions.
+  - A `## Design changes` bullet mutates concept, story, or
+    decision body text but the new text violates the
+    self-containment rule (see `ok-planner:discover-design`'s
+    SKILL.md): cites a file path, names an external doc, quotes
+    code or a lint-config allowlist, or introduces an "Owns /
+    Does NOT own" section that cites paths. Flag the offending
+    bullet and the offending citation; the fix is to rewrite the
+    new body as path-free prose.
+  - A `## Design changes` bullet violates the current-state-only
+    rule (see `ok-planner:discover-design`'s SKILL.md). Flag any
+    of: directs adding a `## Notes` / `## History` / `## Changelog`
+    section; directs appending a dated audit-trail entry
+    (`YYYY-MM-DD — <what changed>`, "Append a Notes entry: ...",
+    "add a Notes line citing spec X"); writes backward-looking
+    phrasing into the artifact body ("previously called X",
+    "used to be Y", "(was 60s)", "changed per spec Z"); writes
+    forward-looking phrasing ("TODO", "we plan to", "will be
+    replaced", "deferred to V2", "open question for later"). The
+    fix is to rewrite the bullet so the new body section describes
+    the artifact as it now stands; git carries the lineage.
   - A `## Design changes` bullet creates or modifies a tension
     whose `## Resolution candidates` section cites a file path,
-    symbol, or external doc. Resolutions become spec
-    instructions and live forward in time — they must be
-    path-free (see the "Tension surface rule"). Code-citation
-    evidence is fine in `## What is muddy` / `## Evidence`,
-    not in `## Resolution candidates`.
+    symbol, or external doc. Resolutions become spec instructions
+    and live forward in time — they must be path-free (see the
+    "Tension surface rule"). Code-citation evidence is fine in
+    `## What is muddy` / `## Evidence`, not in `## Resolution
+    candidates`.
 
-  If `.ok-planner/design/concepts/` does not exist, skip this
-  section.
+  If `.ok-planner/design/` does not exist, skip this section.
 
   ## Spec quality checks
 
@@ -414,41 +643,109 @@ Agent (general-purpose):
   - Completeness (TODOs, placeholders, incomplete sections)
   - Internal consistency (contradictions, conflicting requirements)
   - Clarity (ambiguity that could cause wrong implementation)
-  - YAGNI (unrequested features)
+  - **No forward-looking content.** Flag ANY of: "out of scope,"
+    "non-goals," "future work," "V2," "later," "deferred,"
+    "deliberately not addressing," "open questions," "to be
+    determined," "TBD," "we'll decide later," "leaving this open."
+    None of these describe work that will happen, so none of them
+    are valid spec content. Scope is bounded by omission — by
+    which stories and decisions the spec contains — never by
+    forward-looking language. (The "delivery process is out of
+    scope — no PRs/commits/branches" exclusion is the only
+    permitted scope-bounding statement; it bounds process, not
+    a feature or a decision.)
   - User outcomes (the spec's originating contract). If the spec
     introduces user-observable behavior, it must OPEN with a
     complete, enumerated set of user-outcome stories — one per
     distinct user-observable outcome it promises — each with an
-    acceptance stated at the user-outcome level: a real entry point
-    driving the assembled product to a real observable outcome, with
-    the value-delivering component (executor, worker, sensor,
-    subscriber, …) real — not a stub. Check all of:
+    acceptance stated at the user-outcome level: a user action
+    described in user terms producing a real observable outcome,
+    with the value-delivering component (executor, worker, sensor,
+    subscriber, …) real — not a stub. The delivery surface is a
+    technical decision (a `TD-` entry), never part of a story.
+    Check all of:
     - **Completeness.** Every user-observable capability the spec
       describes (in any section, including any mechanism it details)
       has a corresponding story. A capability the mechanism delivers
       but no story names is the exact hole that ships unbuilt — flag
       it.
-    - **User-outcome level.** Reject acceptance phrased in
-      implementation terms — "the handler is registered," "the class
-      is declared," "returns 200," "calls helper X," "asserts the
-      struct shape" — and any story that stubs the very component it
-      exists to exercise. Acceptance must read as the outcome a user
-      observes.
-    - **No feature deferral.** Flag any "out of scope / non-goals /
-      V2 / future / later / deferred" applied to a *capability* — the
-      spec bounds scope by which stories it contains, not by deferring
-      features in prose. (The delivery-process exclusion —
-      PRs/commits/branches — is fine.)
+    - **User-outcome level, non-prescriptive.** Reject acceptance
+      phrased in implementation terms — "the handler is registered,"
+      "the class is declared," "returns 200," "calls helper X,"
+      "asserts the struct shape." Also reject acceptance that pins a
+      specific **delivery surface** — names a particular HTTP route,
+      CLI verb, wire format, job schedule, or UI element — instead
+      of the user-observable action. Surface choices are technical
+      decisions and belong in `TD-` entries; the story names the
+      capability and the observable outcome in the user's terms. And
+      reject any story that stubs the very component it exists to
+      exercise.
+    - **Falsifier present, concrete, user-observable.** Every story
+      has a Falsifier line stating what observation would prove the
+      story not delivered. Reject Falsifiers that mirror the
+      acceptance verbatim in the negative ("the effect does not
+      appear"), restate the story's goal vaguely ("the feature
+      doesn't work"), or are too abstract to point at in code. A
+      good Falsifier names a specific **user-observable absence** a
+      reviewer could point at — the user takes the action and the
+      promised result never appears, the result appears but is
+      unrelated to their input, or the result looks real but the
+      value-delivering component is stubbed or canned so the
+      underlying state is synthetic.
+    - **Proof form named and concrete.** Every story has a Proof
+      line naming the form (demo / example / proof / all-of-the-above)
+      and what the proof must exhibit to a third party. Reject Proofs
+      that don't name a form, name a form without saying what it
+      exhibits, or describe a form that could not actually convince
+      a third party — a "demo" that just calls the handler in process,
+      an "example" that asserts a struct shape, a "proof" whose
+      value-delivering component is canned. The proof's job is
+      *exhibition*, not internal assertion; it must show the feature
+      working end-to-end through whatever delivery surface the spec's
+      TDs prescribe.
     A pure refactor / docs-only / no-user-surface spec correctly has
     no stories — do not flag their absence there.
+  - **Technical decisions (atomic, enumerable).** If the spec
+    contains mechanism content (architecture, components, data
+    flow, behavior), it must include a `## Technical decisions`
+    section enumerating each decision as `TD-«slug»` with Choice
+    and Rationale (and Alternatives when the spec wants to record
+    them). Check all of:
+    - **Atomic.** One decision per item. Lumped items like "use
+      X for persistence, Y for messaging, and Z for caching" are
+      not atomic — flag and request splitting.
+    - **Choice stated explicitly.** Every TD names the option the
+      spec adopts. A TD that just describes a tradeoff without
+      naming the chosen side is incomplete.
+    - **Rationale present.** Every TD has at least a one-line
+      reason. "Because we said so" is not a rationale.
+    - **No deferred decisions.** A TD whose Choice is "to be
+      determined," "we'll decide later," or names multiple options
+      without picking one is forward-looking content — flag it.
+      If the user has not decided, the choice is a tension that
+      should be resolved via `/refine-design` first.
+    A docs-only spec with no mechanism content correctly has no
+    technical decisions — do not flag their absence there.
+  - **Spec manifest present and complete.** The spec ends with a
+    `## Manifest` section enumerating every story (slug + Proof
+    form) and every technical decision (slug). The manifest is
+    the contract the closing audit walks. Flag if:
+    - The manifest is missing.
+    - The manifest's Stories subsection does not match the stories
+      in the User outcomes section (count mismatch, slug mismatch,
+      missing Proof form annotation).
+    - The manifest's Technical decisions subsection does not match
+      the TDs in the Technical decisions section.
+    - The manifest mentions an item the spec body does not define,
+      or the spec body defines an item missing from the manifest.
+    A spec with no stories and no decisions (rare — e.g., a pure
+    cleanup spec with only design-doc mutations) may have an
+    empty manifest or none; don't flag absence in that case.
 
   Flag any PR, commit, branch, deployment, release, or rollout
   instructions — specs cover what to build, not how to ship it.
   Flag any indication that the work has been split across multiple
   specs.
-
-  Only flag issues that would cause real problems during
-  implementation.
 
   Report: Approved | Issues Found (with specifics)
 ```

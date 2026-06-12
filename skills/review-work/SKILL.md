@@ -92,24 +92,25 @@ Agent (general-purpose):
   a question your review raises, raise it as an issue against the
   spec/plan, not against the design docs.
 
-  ### Divergence report
-  If the work was produced by `ok-planner:execute-plan`, a divergence
+  ### Completion report
+  If the work was produced by `ok-planner:execute-plan`, a completion
   report may exist alongside the plan (e.g.,
-  `.ok-planner/plans/<plan>-divergences.md`). If present, read it. The
-  divergence report is an auditor's record of where the implementation
-  differs from what the plan literally said — useful context for
-  understanding why the code looks the way it does, not a bypass of
-  review. A divergence by itself is not an issue; form your findings
-  from the code. A divergence that produces working, safe code is
-  fine. A divergence that introduces a bug, regression, or invariant
+  `.ok-planner/plans/<plan>-completion-report.md`). If present, read
+  it. The completion report has three sections — proofs walked,
+  technical decisions kept, technical decisions diverged — covering
+  100% of the spec. Use it as context for understanding why the code
+  looks the way it does, not as a bypass of review. A divergence
+  recorded there is not by itself an issue; form your findings from
+  the code. A divergence that produces working, safe code is fine. A
+  divergence that introduces a bug, regression, or invariant
   violation is an issue — flag it with file:line as you would any
   other. So is a divergence that silently trades away a property the
   spec or plan relied on (durability, completeness, atomicity,
   ordering, no-data-loss) — even when the code "works": flag it and
-  name the property that was spent. And note that the auditor records
-  consequential choices the plan left *unspecified* too; an
-  unsettled-tradeoff divergence is one of those, so don't dismiss it
-  just because the plan never named the property at stake.
+  name the property that was spent. The "necessitated" flavor of
+  divergence (work the spec did not name but the necessity rule
+  required) is the most common — don't dismiss it just because the
+  spec never spelled out the property at stake.
 
   ### Output Format
 
@@ -202,9 +203,19 @@ Agent (general-purpose):
     `concept:claim-handle`).
   - Annotation IDs the codebase uses (`@blessed-invariant: N`,
     `@agent-contract: X`).
-  - Spec slugs in dated Notes entries
-    (`spec:YYYY-MM-DD-<topic>`).
-  - Dates.
+
+  **Current-state only.** Concept, story, and decision bodies
+  describe the project as it stands today. Flag any of:
+  - A `## Notes`, `## History`, or `## Changelog` section.
+  - Dated audit-trail entries (`YYYY-MM-DD — <what changed>`).
+  - Backward-looking phrasing: "previously called X", "used
+    to live at Y", "was tightened per spec Z", "(was 60s)".
+  - Forward-looking phrasing: "we plan to", "will be replaced",
+    "TODO", "deferred", "open question for later".
+
+  Lineage lives in git history, not the artifact body. Open
+  ambiguities go in `tensions/`, not in a forward-looking
+  note in the concept itself.
 
   **Tension surface rule** (applies to every live
   `tensions/<slug>.md`):

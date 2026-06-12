@@ -219,12 +219,16 @@ A headline use case with only nominal coverage outranks a peripheral one with
 none — highest credibility risk first.
 
 For each gap, **draft the acceptance scenario** exactly as `brainstorm`'s "User
-outcomes" defines a story's acceptance: **«real input» reaches the running system
-→ «real observable effect» appears at «real surface»**, in product terms, with the
-value-delivering component **real, not stubbed**. This prose scenario is the
-deliverable — it becomes one of the spec's user-outcome stories when the gap is
-taken into `brainstorm` / `write-plan`, and `write-plan` turns it into that
-story's mandatory acceptance gate.
+outcomes" defines a story's acceptance: **«what the user does, in user terms» →
+«what they observe happening»**, with the value-delivering component **real, not
+stubbed**. Keep the scenario user-observable — do **not** pin the specific
+delivery surface inside it (route shape, CLI flag syntax, wire format). The
+surface is the **Real entry point** field captured back in Phase 1; it becomes
+the `TD-` that pairs with the story when this gap is taken into the pipeline.
+This prose scenario plus its entry-point field is the deliverable — together
+they become one of the spec's user-outcome stories and one of its technical
+decisions when the gap is taken into `brainstorm` / `write-plan`, and
+`write-plan` turns the story into its mandatory acceptance gate.
 
 **Do not write the test.** The scenario is a design artifact; the acceptance pass
 (the executable gate) is written downstream by `execute-plan`, against the real
@@ -252,7 +256,7 @@ For each gap, in rank order:
 - **Capability** (product terms)
 - **Source claim** (citation)
 - **Value-delivering component**
-- **Proposed acceptance scenario** — «real input» → «real effect» at «real surface»
+- **Proposed acceptance scenario** — «what the user does, in user terms» → «what they observe» (delivery surface captured in the Real entry point field above; becomes a `TD-` when the spec is written)
 - **Why current coverage is nominal, not real** — cite the test(s) and the gap
 - **Rank rationale** — loudness × coverage-weakness
 

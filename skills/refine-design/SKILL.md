@@ -237,10 +237,13 @@ are one cleanup; etc.).
 
 When `execute-plan` applies the spec produced by this skill, the
 `## Design changes` section is its instruction set:
-- Concept files in `concepts/` are mutated in place per each
-  bullet. The Notes section gets an append entry citing the spec
-  slug (e.g., `<date> — Tension resolved: <tension-slug> —
-  <one-line>`).
+- Concept files in `concepts/`, story files in `stories/`, and
+  decision files in `decisions/` are mutated in place per each
+  bullet (depending on which the tension resolution affects).
+  The affected body section is rewritten to reflect the new
+  state — no audit-trail entry is added to the artifact. The
+  git commit carries the lineage; the artifact body is
+  current-state only.
 - Resolved tensions move to `tensions/_resolved/<slug>.md` with
   `status: resolved` and a `resolution:` block.
 - Rejected tensions move to `tensions/_rejected/<slug>.md` with
@@ -254,10 +257,11 @@ When `execute-plan` applies the spec produced by this skill, the
 
 ## What this skill does NOT do
 
-- Doesn't mutate `concepts/`, `tensions/`, or `review-notes.md`
-  directly. All design-doc changes happen in `execute-plan` after
-  spec + plan approval, so the design changes ride alongside the
-  code changes and stay reversible until then.
+- Doesn't mutate `concepts/`, `stories/`, `decisions/`,
+  `tensions/`, or `review-notes.md` directly. All design-doc
+  changes happen in `execute-plan` after spec + plan approval, so
+  the design changes ride alongside the code changes and stay
+  reversible until then.
 - Doesn't write code. Brainstorm produces the spec; write-plan
   sequences the work; execute-plan does the writing.
 - Doesn't re-do discovery. If the user finds that a tension can't be

@@ -163,8 +163,6 @@ Agent (general-purpose):
   - Dead-looking code that might document a deliberate negative
     choice (the constant exists so a test pins the rejection, the
     interface is a forward-compat seam, etc.).
-  - Findings where you read the design-docs Notes section and the
-    Notes neither support nor refute your concern.
 
   The bar: "if I had to defend this in front of someone who
   designed it, what would they likely say?" If a plausible defense
@@ -192,26 +190,33 @@ Agent (general-purpose):
   fixes over backwards-compat shims. If the repo says break freely,
   surface backwards-compat shims as Class-2 findings.
 
-  ### Divergence reports and design docs (required reading)
+  ### Completion reports and design docs (required reading)
 
   Before forming any findings, you MUST read:
 
-  - Every `*-divergences.md` file under `.ok-planner/plans/` and
-    `.ok-planner/history/plans/` in full. These are the divergence
-    auditor's record of where each implementation differed from
-    its plan — useful context for understanding the shape of the
-    code as it stands.
+  - Every `*-completion-report.md` file under `.ok-planner/plans/`
+    and `.ok-planner/history/plans/` in full. These are the
+    completion auditor's three-section record (proofs walked,
+    decisions kept, decisions diverged) — useful context for
+    understanding the shape of the code as it stands.
   - **`.ok-planner/design/concepts.md` (if it exists)** — the
     auto-generated TOC of the project's canonical concept
     catalog. Holistic review is whole-codebase scope, so the TOC
     is your starting map of what's load-bearing.
-  - **`@concept:` annotations across the codebase** — run
-    `rg '@concept:'` to surface every inline citation. Each tells
-    you a load-bearing site for a specific concept.
-  - **Full `.ok-planner/design/concepts/<slug>.md` files** — read
-    every concept the TOC and annotations surface. For holistic
-    review, expect this to be most or all of them; the catalog is
-    the design oracle.
+  - **`.ok-planner/design/stories.md` and
+    `.ok-planner/design/decisions.md` (if they exist)** — the
+    auto-generated TOCs for the durable story and decision
+    catalogs.
+  - **`@concept:`, `@story:`, `@decision:` annotations across the
+    codebase** — run
+    `rg '@(concept|story|decision):'` to surface every inline
+    citation. Each tells you a load-bearing site for a specific
+    artifact.
+  - **Full `.ok-planner/design/concepts/<slug>.md`,
+    `stories/<slug>.md`, `decisions/<slug>.md` files** — read
+    every artifact the TOCs and annotations surface. For holistic
+    review, expect this to be most or all of them; the durable
+    model is the design oracle.
   - **Every tension file under `.ok-planner/design/tensions/`** (if
     the directory exists). These document the design's known
     muddiness — code shape that matches an open tension is a
