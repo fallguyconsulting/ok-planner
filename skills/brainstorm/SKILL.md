@@ -32,7 +32,8 @@ The product of this skill is a user-approved spec — that requires the user. Ge
 5. **Lock the user outcomes first** -- before proposing approaches or any mechanism, draft the user-outcome stories — each with Acceptance, Falsifier, and Proof — and get the user's explicit approval on them. The mechanism discussion (approaches, architecture, components, technical decisions) follows once the stories are agreed. This keeps "what the feature is and how we'll know it works" a separate, settled conversation from "how we'll build it." See "User outcomes" below for the shape.
 6. **Propose 2-3 approaches** -- with trade-offs and your recommendation
 7. **Present design** -- scaled to complexity, get user approval section by section. Surface any design-doc impacts (concept additions/mutations, tension resolutions or new tensions) as part of the discussion; they go into the spec, not into the design docs directly.
-8. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`. If the work touches the design docs, include a `## Design changes` section enumerating the mutations execute-plan will apply.
+8. **Write spec** -- save to `.ok-planner/specs/YYYY-MM-DD-<topic>-design.md`. If the work touches the design docs, include a `## Design changes` section enumerating the mutations execute-plan will apply. If the work affects any existing story's proof exhibition (see step 8a), include a `## Proof changes` section.
+8a. **Surface proof implications** -- after the spec is drafted, scan it for changes that affect existing stories' proof exhibition. For each affected story, dialogue with the user (see "Proof implications" below) and capture the verdict in `## Proof changes`. This step happens before spec review; the reviewer checks that all proof-affecting changes are accounted for.
 9. **Spec review** -- dispatch reviewer subagent, fix issues, re-review until clean
 10. **User reviews spec** -- ask user to review before proceeding
 11. **Archive source sketches** -- if the brainstorm had source sketches: capture any deferred content in a new sketch, then move each source sketch to `.ok-planner/history/sketches/` (see "Source sketches"). Skip if there were none.
@@ -69,7 +70,25 @@ This is the spec's originating content — written first, before any
 mechanism (architecture, components, protos, config). The mechanism
 exists to serve the stories; the stories are not derived from it.
 
-Shape each story as:
+**The canonical definition of a story lives in
+`skills/_shared/artifact-definitions.md`.** Read it before writing
+stories in a spec. It covers: what a story is (a durable user
+expectation, not a build record or development task), the
+durable-user-expectation exclusion (if it reads as "we added X" or
+"we migrated A to B," it's not a story — those are TDs, refactors, or
+implementation events), the delivery-surface-is-not-part-of-the-story
+rule (whether the user reaches the capability through CLI / HTTP /
+wire / job / UI is a TD, not story content), and the canonical shape
+(As «role», I can «capability», so that «business value» + Acceptance
++ Falsifier + Proof).
+
+The rest of this section covers the spec-authoring application of
+that canonical definition.
+
+### Spec-inline story format
+
+In a spec, each story takes this compact form (the same canonical
+shape as `design/stories/<slug>.md`, condensed for spec inlining):
 
 > **STORY-«slug»** — As «role», I can «capability», so that «business value».
 > **Acceptance:** «what the user does, in their terms» → «what the user
@@ -78,6 +97,8 @@ Shape each story as:
 > NOT delivered».
 > **Proof:** «demo | example | proof | all-of-the-above» — «what the
 > proof must exhibit to a third party».
+
+### Acceptance is user-observable
 
 The acceptance is stated at the **user-outcome level**, in language a
 user of the product would recognize. It names what the user does
@@ -91,18 +112,12 @@ point is that some worker, executor, sensor, or subscriber does real
 work, the acceptance names the real effect that component produces,
 and a canned stub standing in for it is not an acceptance.
 
-**Which delivery surface exposes the story is not part of the story.**
-Whether the user takes their action through an HTTP route, a CLI
-verb, a wire message, a scheduled job, or a UI is a **technical
-decision** — it lives in a `TD-` entry in the spec's `Technical
-decisions` section, not in the story. The story names the capability
-and the observable outcome; the TDs name how it is exposed. Splitting
-them this way keeps a story re-usable across surface changes (moving
-a feature from a CLI to a web UI is a TD change, not a story rewrite)
-and keeps API-shape decisions in the section the closing audit walks
-them in. Concretely: a story acceptance reads "the co-holder submits
-a claim and sees it persisted," not "POST /claims/{id} returns 201
-with the claim body."
+Concretely: a story acceptance reads "the co-holder submits a claim
+and sees it persisted," not "POST /claims/{id} returns 201 with the
+claim body." The route is in the relevant TD; the user-observable
+outcome is in the story.
+
+### Falsifier shape
 
 The **Falsifier** is the same outcome viewed from the opposite side —
 the concrete observation that would make a reviewer say "this story
@@ -114,6 +129,8 @@ standing in for the value-delivering component's real work). Write it
 sharply enough that a reviewer reading the diff can point at a
 specific absence — not a generic "the feature doesn't work" and not
 the acceptance rephrased in the negative.
+
+### Proof shape
 
 The **Proof** is the artifact that exhibits the story working to a
 third party — a demo, an example, an executable proof, or all of the
@@ -203,13 +220,29 @@ a discrete item the closing auditor can pair with implementation —
 kept as decided, or diverged with reason — so every choice the spec
 made gets accounted for at the end of execute-plan.
 
-Shape each technical decision as:
+**The canonical definition of a decision lives in
+`skills/_shared/artifact-definitions.md`.** Read it before writing
+TDs in a spec. It covers: what a decision is (a real
+architectural/technical choice with non-trivial tradeoffs, where a
+plausible different choice existed), what TDs may include (technical
+detail; the Choice section may name the specific artifact picked
+because the artifact identity is what carries the tradeoff), and what
+TDs are not (specs that enumerate implementation steps; designs that
+describe how the chosen thing works in detail).
+
+The rest of this section covers the spec-authoring application.
+
+### Spec-inline TD format
+
+In a spec, each technical decision takes this compact form:
 
 > **TD-«slug»** — «the decision named in plain words».
 > **Choice:** «the option the spec adopts».
 > **Rationale:** «one or two sentences on why».
 > **Alternatives:** «the options considered and rejected — only when
 > the spec wants to record them; omit when the choice is uncontested».
+
+### Atomicity
 
 Make each decision **atomic**: one decision per item. "Use X for
 persistence, Y for messaging, and Z for caching" is three decisions,
@@ -454,7 +487,7 @@ enough that execute-plan can apply it mechanically. Example:
   Boundaries section with: ... (full new text, describing the
   new boundary as it stands — no "was X" or "changed from Y").
 - Concept: create `concepts/claim-producer.md` from the template
-  in `ok-planner:discover-design`'s SKILL.md, with Definition: ...,
+  in `skills/_shared/artifact-definitions.md`, with Definition: ...,
   Purpose: ..., Boundaries: ..., Invariants: ....
 - Story: create `stories/claim-co-holder.md` capturing this spec's
   STORY-claim-co-holder verbatim — role, capability, business
@@ -462,7 +495,7 @@ enough that execute-plan can apply it mechanically. Example:
 - Story: mutate `stories/stale-claim-recovery.md` in place. Replace
   the Acceptance section with: ... (full new text).
 - Decision: create `decisions/persistence.md` from the template
-  in `ok-planner:discover-design`'s SKILL.md, capturing this
+  in `skills/_shared/artifact-definitions.md`, capturing this
   spec's TD-persistence: Choice: Postgres with `pgx`. Rationale:
   ... Alternatives considered: ...
 - Decision: mutate `decisions/claim-recovery-cadence.md` in place.
@@ -474,7 +507,7 @@ enough that execute-plan can apply it mechanically. Example:
   with `status: resolved` and a `resolution:` block summarizing
   the outcome (the resolution shape is: ...).
 - Tension: create `tensions/cache-invalidation.md` from the
-  template in `ok-planner:discover-design`'s SKILL.md, with
+  template in `skills/_shared/artifact-definitions.md`, with
   status: open and the muddiness described as: ....
 ```
 
@@ -482,7 +515,7 @@ Each bullet rewrites the affected section to reflect the new
 state. Do **not** add a `## Notes`, `## History`, or dated
 audit-trail entry to any artifact — the design docs are
 current-state only (see the "Current-state-only rule" in
-`ok-planner:discover-design`'s SKILL.md). The git commit
+`skills/_shared/artifact-definitions.md`). The git commit
 carries the lineage. Do not write "previously called X",
 "used to be Y", "changed per spec Z", or similar
 backward-looking language into the artifact body.
@@ -496,7 +529,7 @@ concept, story, or decision — new or rewritten Definition /
 Purpose / Boundaries / Invariants (concepts), Acceptance /
 Falsifier / Proof (stories), Choice / Rationale / Alternatives
 (decisions) — the new body must follow the self-containment rule
-from `ok-planner:discover-design`'s SKILL.md. TL;DR: the body has
+from `skills/_shared/artifact-definitions.md`. TL;DR: the body has
 no file paths, no `code:`/`pkg:` citations, no external-doc
 references (`docs/...`, READMEs, sibling-repo paths), no quoted
 code or lint-config allowlists, no "Owns / Does NOT own" sections
@@ -513,8 +546,109 @@ writing the spec.
 The same rule applies to tension files the spec creates or
 modifies: `## Resolution candidates` sections in tensions are
 path-free; `## What is muddy` and `## Evidence` can cite code
-as evidence. See the "Tension surface rule" in the extractor
-prompt.
+as evidence. See the "Tension surface rule" in
+`skills/_shared/artifact-definitions.md`.
+
+## Proof implications
+
+After the spec is drafted but before the reviewer runs, scan
+the spec for changes that affect existing stories' proof
+exhibition. Capture the user's verdict in a `## Proof changes`
+section.
+
+**What triggers the scan.** Proof implications arise when the
+spec's content itself implies a story-intent change. The signals
+are visible in what the spec is doing, not in a diff (which
+doesn't exist yet):
+
+- The spec mutates an existing story (a `## Design changes`
+  entry on the story's Acceptance, Falsifier, or Proof field).
+- The spec proposes a TD that retires, replaces, or materially
+  changes a delivery surface that an existing story's `Proof:`
+  field references. (Example: a TD switches the CLI verb the
+  product exposes; any story whose proof drives the product
+  through that verb will need its proof artifact updated.)
+- The spec deprecates a story entirely.
+
+If none of these signals are present, the spec has no proof
+implications and the `## Proof changes` section is omitted
+entirely. Most specs will not need one.
+
+**Finding affected stories.** For each in-flight story
+mutation, identify the story slug from the `## Design changes`
+entry. For each TD that changes a delivery surface, grep the
+codebase for `@story:<slug>` annotations and read the matching
+`stories/<slug>.md` files to see whose `Proof:` field
+references the affected surface. Collect the affected story
+slugs.
+
+**Dialogue with the user, per affected story.** For each
+affected story, surface to the user:
+
+> "This spec affects the proof exhibition of STORY-«slug».
+> The story's current Proof field says: «text from
+> stories/«slug».md».
+>
+> Three options:
+> A. **Preserve the intent** — the spec's mechanism changes,
+>    but the proof artifact will be updated to keep satisfying
+>    the same Proof field. No story mutation; the proof file
+>    just gets refactored.
+> B. **Shift the intent** — the spec is changing what this
+>    story exhibits. The story's Proof field (and possibly
+>    Acceptance/Falsifier) will be rewritten. We'll draft the
+>    new wording together and add a `## Design changes` entry
+>    mutating the story.
+> C. **Remove the story** — the story is being retired. Its
+>    proof artifact(s) go away with it. This requires you to
+>    confirm; the agent does not propose removal."
+
+Three options, not two. The user picks per story. The agent
+never picks; defaults are not applied.
+
+**Recording the verdict in `## Proof changes`.** For each
+affected story, write one bullet:
+
+```
+## Proof changes
+
+- **STORY-claim-co-holder** — A. Preserve the intent. The
+  proof artifact at `examples/claim-flow/co-holder.go` will
+  be updated to use the new CLI verb introduced by
+  TD-cli-grammar-revision; the story's Proof field is
+  unchanged.
+- **STORY-stale-claim-recovery** — B. Shift the intent. The
+  story's Proof field is being rewritten under
+  `## Design changes` to exhibit the new event-driven
+  recovery path; the previous tick-based proof exhibition no
+  longer applies. The proof artifact at
+  `test/scenarios/stale_recovery_test.go` will be rewritten
+  to drive the new mechanism.
+- **STORY-bulk-export** — C. Remove the story. The user
+  confirmed this story is being retired; see
+  `## Design changes` for the story removal. The proof
+  artifact at `examples/bulk_export.go` will be deleted in
+  the same plan.
+```
+
+A spec with no proof implications omits this section. A spec
+with implications must enumerate every affected story; the
+reviewer rejects unenumerated proof-touching changes.
+
+**What is NOT a proof implication.** Routine refactors,
+internal-API renames, library swaps, test-harness changes,
+and any other modification that touches a `@story:<slug>`-
+annotated file without changing what the file exhibits to a
+third party are NOT proof implications. They are ordinary
+code changes that happen to touch protected files. The cycle
+1 code review catches genuine surprises (e.g., a refactor that
+quietly stubs the value-delivering component); brainstorm
+does not gate every touch. The discipline keys on the story's
+`Proof:` field, not on whether bytes in a proof file changed.
+
+See `{{PROOF-PROTECTION-RULE}}` in
+`skills/_shared/artifact-definitions.md` for the full
+canonical text.
 
 ## Writing the spec and reviewing it
 
@@ -616,7 +750,7 @@ Agent (general-purpose):
     bullet and the offending citation; the fix is to rewrite the
     new body as path-free prose.
   - A `## Design changes` bullet violates the current-state-only
-    rule (see `ok-planner:discover-design`'s SKILL.md). Flag any
+    rule (see `skills/_shared/artifact-definitions.md`). Flag any
     of: directs adding a `## Notes` / `## History` / `## Changelog`
     section; directs appending a dated audit-trail entry
     (`YYYY-MM-DD — <what changed>`, "Append a Notes entry: ...",
@@ -669,6 +803,16 @@ Agent (general-purpose):
       has a corresponding story. A capability the mechanism delivers
       but no story names is the exact hole that ships unbuilt — flag
       it.
+    - **Durable user expectation, not a dev task.** Each story
+      describes what the product owes its users on an ongoing basis,
+      not a one-time change or implementation event. Apply the test
+      from `skills/_shared/artifact-definitions.md`: would a
+      regression of this capability be a defect a reasonable user
+      would notice and complain about, years from now? If no, it's
+      not a story — flag stories shaped as "added support for X,"
+      "migrated from A to B," "introduced a new field on Y,"
+      "renamed the foo endpoint." Those are TDs, refactors, or
+      implementation events, not stories.
     - **User-outcome level, non-prescriptive.** Reject acceptance
       phrased in implementation terms — "the handler is registered,"
       "the class is declared," "returns 200," "calls helper X,"
@@ -716,9 +860,25 @@ Agent (general-purpose):
       not atomic — flag and request splitting.
     - **Choice stated explicitly.** Every TD names the option the
       spec adopts. A TD that just describes a tradeoff without
-      naming the chosen side is incomplete.
+      naming the chosen side is incomplete. The Choice section MAY
+      name the specific artifact picked (library, protocol, format,
+      value) — the artifact identity is what carries the tradeoff
+      and is the honest form.
+    - **Real tradeoff with non-trivial alternatives.** Each TD
+      represents a choice where a plausible different choice
+      existed. If there was no real alternative (the choice is a
+      default with no contender), it isn't a decision — drop it or
+      reshape it. The Alternatives field, when present, should name
+      genuinely-considered options, not strawmen.
     - **Rationale present.** Every TD has at least a one-line
-      reason. "Because we said so" is not a rationale.
+      reason. "Because we said so" is not a rationale. The
+      rationale states the tradeoff, not just the choice.
+    - **TDs are not specs or designs.** A TD records the choice and
+      the reasoning; it does not enumerate implementation steps,
+      file structure, schema details, or call sequences. Flag a TD
+      that has slid into spec or design content — that material
+      belongs in the spec's mechanism prose or in the code, not in
+      the TD itself.
     - **No deferred decisions.** A TD whose Choice is "to be
       determined," "we'll decide later," or names multiple options
       without picking one is forward-looking content — flag it.
@@ -741,6 +901,37 @@ Agent (general-purpose):
     A spec with no stories and no decisions (rare — e.g., a pure
     cleanup spec with only design-doc mutations) may have an
     empty manifest or none; don't flag absence in that case.
+  - **Proof changes section** (if proof implications exist). If
+    the spec mutates an existing story, retires a story, or
+    proposes a TD that changes a delivery surface referenced by
+    an existing story's `Proof:` field, the spec must include a
+    `## Proof changes` section. The section enumerates every
+    affected story with one of three verdicts: **A. Preserve the
+    intent** (proof artifact updated, no story Proof-field
+    mutation), **B. Shift the intent** (story's Proof field
+    rewritten under `## Design changes`), or **C. Remove the
+    story** (explicit user-directed removal, recorded under
+    `## Design changes`). Flag if:
+    - The spec has a `## Design changes` entry mutating a
+      story but no corresponding `## Proof changes` entry for
+      that story.
+    - The spec proposes a TD that changes a delivery surface
+      referenced by an existing story's `Proof:` field, but
+      `## Proof changes` does not address the affected stories.
+    - A `## Proof changes` entry chose verdict B (shift the
+      intent) but `## Design changes` has no story Proof-field
+      mutation for that story.
+    - A `## Proof changes` entry chose verdict C (remove) but
+      `## Design changes` has no story removal entry for that
+      story.
+    - A `## Proof changes` entry exists without a clear verdict
+      (A / B / C). Reject vague phrasing like "the proof will
+      need updating" without naming which of the three options.
+    A spec with no proof implications correctly omits the
+    section; do not flag its absence in that case. (Specs that
+    only add new stories — no mutations, no retirements, no
+    delivery-surface changes affecting existing stories — have
+    no proof implications.)
 
   Flag any PR, commit, branch, deployment, release, or rollout
   instructions — specs cover what to build, not how to ship it.

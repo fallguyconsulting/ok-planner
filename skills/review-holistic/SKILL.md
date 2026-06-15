@@ -24,6 +24,7 @@ abstractions, and documentation that don't earn their keep.
   until a cycle finds zero issues across all four classes below.
 
 For other review types: `/review-work` (uncommitted only),
+`/review-design` (whole-corpus design-doc audit),
 `/review-plan` (against spec/plan), `/review-commits` (commit range),
 `/review-files` (specific files), `/review-feature` (feature area).
 

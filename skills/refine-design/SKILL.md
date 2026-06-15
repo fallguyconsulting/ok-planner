@@ -142,7 +142,7 @@ up context and invokes `ok-planner:brainstorm`.
      at the concept level — which Definition / Boundaries /
      Invariants text would change, and what the new text says —
      following the concept self-containment rule from
-     `ok-planner:discover-design`'s SKILL.md. The new body text
+     `skills/_shared/artifact-definitions.md`. The new body text
      is path-free; the code-paths-needing-reconciling portion of
      the brief is a separate item (the code work), not part of
      the proposed concept body.

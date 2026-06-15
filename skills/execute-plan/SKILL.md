@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: "ONLY activated by explicit /execute-plan slash command or ok-planner pipeline. Never auto-triggered. Drives a plan to completion pass by pass as a Workflow with an opposing implementer ↔ validator pair: dispatch the implementer, dispatch a disinterested validator that argues against the pass delivering, loop on rejection, escalate on exhaustion. After all passes clear, a final verification gate runs the project's build + test + lint suite; the no-deferral audit and completion auditor follow. Human-facing intake, escalation, final review, and the closing walk stay in the skill."
+description: "ONLY activated by explicit /execute-plan slash command or ok-planner pipeline. Never auto-triggered. Drives a plan to completion pass by pass as a Workflow with an opposing implementer ↔ validator pair: dispatch the implementer, dispatch a disinterested validator that argues against the pass delivering, loop on rejection, escalate on exhaustion. Every three cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work so issues don't pile up to the end. After all passes clear, a final verification gate runs the project's build + test + lint suite; the no-deferral audit and completion auditor follow. Human-facing intake, escalation, final review, and the closing walk stay in the skill."
 ---
 
 # Executing a Plan (Workflow engine)
@@ -58,8 +58,9 @@ Every role in the engine except the implementer is
 Every pass leaves the tree in a working state — there is no
 `broken-intentional` end-state and no restorer model. A pass's
 contract is its **Falsifier brief**, written by `write-plan`.
-Acceptance passes additionally annotate the story slug they serve
-in their header (`acceptance pass — STORY-<slug>`); the validator
+Acceptance passes additionally annotate every story slug they serve
+in their header (`acceptance pass — STORY-<slug>`, or a
+comma-separated list for a shared pass); the validator
 uses the spec's story (Acceptance + Falsifier + Proof) as its
 deeper context for those passes.
 
@@ -68,10 +69,11 @@ deeper context for those passes.
 | In the workflow (code, headless) | In the skill (prose, human-facing) |
 |---|---|
 | dispatch implementer; dispatch validator; loop on rejection | parse the plan → structured passes |
-| strategist on first BLOCKED | escalation conversation (blocked, work-stuck, invalid-plan) |
-| final verification gate (build + test + lint per project docs) | the closing walk (proofs working + decisions kept + decisions diverged) |
+| interim review-and-fix checkpoint every 3 cleared passes | escalation conversation (blocked, work-stuck, invalid-plan) |
+| strategist on first BLOCKED | |
+| final verification gate (build + test + lint per project docs) | the closing walk (proofs working + decisions kept + decisions diverged + coverage divergences) |
 | no-deferral audit as gate (loops with fixer until clean) | final review (`review-work` → `review-cleanup`) |
-| completion auditor (writes the report) | archive |
+| completion auditor (writes the four-section report, runs coverage + intent-drift audit) | archive |
 | advance per pass; converge; verify; closing audits | |
 
 The **final review** stays skill-side (`review-work` /
@@ -102,7 +104,9 @@ in the script instead, as the engine's input guard notes.)
      goal,
      falsifier,           // the Falsifier brief — the validator's contract
      isAcceptancePass,    // true if the pass header annotates an acceptance pass
-     storySlug,           // the story slug if isAcceptancePass, else ""
+     storySlug,           // the story slug if isAcceptancePass, else "";
+                          // a shared acceptance pass lists every slug it
+                          // serves, comma-separated ("a, b")
      tasks: [ { number, text } ] }   // task text VERBATIM from the plan
    ```
    If any pass has no falsifier, **stop and surface to the user** —
@@ -169,7 +173,7 @@ in the script instead, as the engine's input guard notes.)
     directory, extract slug + one-line summary, write the sorted
     alphabetical list under the standard header.
 
-7. **Walk the completion report with the user** — three sections, in
+7. **Walk the completion report with the user** — four sections, in
    order, every entry:
    - **Proof walkthrough** — every story's proof artifact, exhibited
      working. Surface each demo/example/proof and walk it with the
@@ -181,10 +185,24 @@ in the script instead, as the engine's input guard notes.)
    - **Technical decisions diverged** — every choice that changed,
      with flavor (improved / selected / necessitated) and reason.
      The user decides what (if anything) to rework.
+   - **Coverage divergences** — findings from the closing coverage
+     + intent-drift audit: coverage gaps (stories with no
+     `@story:<slug>` annotation in the codebase), intent drifts
+     (proof files no longer satisfying their story's Proof field),
+     and dangling annotations (`@story:<slug>` annotations pointing
+     at retired or missing stories). For each finding, the user
+     adjudicates: accept as informational, course-correct now (open
+     a brainstorm to address), or bounce back to the implementer
+     (process defect). Ideally this section is empty — the
+     brainstorm dialogue gate and the validator's per-pass checks
+     should have caught everything at change points. When it isn't
+     empty, the entries are the safety net catching drift the
+     earlier gates missed.
 
-   The three sections are mutually exhaustive against the spec's
-   manifest — together they cover 100% of it. The report is the
-   durable record; what the user walks IS what goes to history.
+   The four sections together cover 100% of the spec manifest's
+   stories + TDs, plus any coverage drift the closing audit
+   surfaced. The report is the durable record; what the user
+   walks IS what goes to history.
 
 8. **Archive** the plan, its `<plan>-completion-report.md`, and the
    linked spec into `.ok-planner/history/`:
@@ -207,9 +225,9 @@ loop; the validator is the judge of whether the pass delivered.
 ```javascript
 export const meta = {
   name: 'execute-plan-engine',
-  description: 'Opposing implementer ↔ validator pair per pass, with a strategist on BLOCKED. Loops on validator rejection; caps at 2 implementer attempts; escalates on exhaustion. After all passes clear, the final verification gate runs the project\'s build + test + lint suite; the no-deferral audit + completion auditor follow.',
+  description: 'Opposing implementer ↔ validator pair per pass, with a strategist on BLOCKED. Loops on validator rejection; caps at 2 implementer attempts; escalates on exhaustion. Every 3 cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work. After all passes clear, the final verification gate runs the project\'s build + test + lint suite; the no-deferral audit + completion auditor follow.',
   phases: [
-    { title: 'Execute', detail: 'implementer ↔ validator per pass' },
+    { title: 'Execute', detail: 'implementer ↔ validator per pass; interim review every 3 cleared passes' },
     { title: 'Verify', detail: 'final build + test + lint gate against the staged tree' },
     { title: 'Audit', detail: 'no-deferral gate + completion auditor' },
   ],
@@ -235,6 +253,11 @@ const passes = input.passes
 const planPath = input.planPath
 const specPath = input.specPath
 const priorCleared = input.priorCleared || 0
+
+// Interim review cadence: after every Nth cleared pass (counting passes
+// cleared before a resume), a holistic reviewer ↔ fixer checkpoint sweeps
+// the accumulated uncommitted work. Amortizes the final review-work cycle.
+const REVIEW_CADENCE = 3
 
 // Schemas
 
@@ -310,7 +333,31 @@ const NO_DEFERRAL_SCHEMA = {
   },
 }
 
-// Completion auditor: produces the three-section report.
+// Interim review checkpoint: a holistic reviewer sweeps the accumulated
+// uncommitted work every REVIEW_CADENCE cleared passes. Every finding goes
+// to the fixer — no severity triage.
+const INTERIM_REVIEW_SCHEMA = {
+  type: 'object',
+  required: ['findings'],
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['location', 'problem'],
+        properties: {
+          location: { type: 'string' },  // file:line
+          problem: { type: 'string' },   // what's wrong
+          why: { type: 'string' },       // why it matters
+          fix: { type: 'string' },       // how to fix
+        },
+      },
+    },
+  },
+}
+
+// Completion auditor: produces the four-section report (proofs walked /
+// decisions kept / decisions diverged / coverage divergences).
 const COMPLETION_AUDIT_SCHEMA = {
   type: 'object',
   required: ['path'],
@@ -319,6 +366,9 @@ const COMPLETION_AUDIT_SCHEMA = {
     proofsExhibited: { type: 'integer' },
     decisionsKept: { type: 'integer' },
     decisionsDiverged: { type: 'integer' },
+    coverageGaps: { type: 'integer' },
+    intentDrifts: { type: 'integer' },
+    danglingAnnotations: { type: 'integer' },
   },
 }
 
@@ -337,10 +387,18 @@ const VERIFY_SCHEMA = {
   },
 }
 
+// Formats a pass's story slug(s) for prose: "STORY-a" or "STORY-a, STORY-b".
+// A shared acceptance pass carries a comma-separated slug list (see the
+// parse shape in the skill's step 2).
+function storyRefs(p) {
+  return String(p.storySlug || '').split(',').map(s => s.trim()).filter(Boolean)
+    .map(s => `STORY-${s}`).join(', ')
+}
+
 function implementerPrompt(p, idx, total, priorFailure) {
   const hasSpec = specPath && specPath !== 'none'
   const acceptanceNote = p.isAcceptancePass
-    ? `\nThis is an **acceptance pass** for STORY-${p.storySlug}. The spec's story carries Acceptance, Falsifier, and Proof fields — read them in the spec. The story names what the user does and observes, in user terms; the delivery surface (CLI verb / HTTP route / wire message / job) is in the spec's relevant TD, not in the story. Your job is BOTH the integrating wiring AND the proof artifact (demo / example / executable proof) the story's Proof field specifies. The artifact boots the real assembled product through the delivery surface the TDs prescribe, drives the story's Acceptance, exhibits the observable outcome, and uses the real value-delivering component — no stubs.`
+    ? `\nThis is an **acceptance pass** for ${storyRefs(p)}. Each story carries Acceptance, Falsifier, and Proof fields — read them in the spec. A story names what the user does and observes, in user terms; the delivery surface (CLI verb / HTTP route / wire message / job) is in the spec's relevant TD, not in the story. Your job is BOTH the integrating wiring AND, per story, the proof artifact (demo / example / executable proof) that story's Proof field specifies — a shared pass never merges artifacts away. Each artifact boots the real assembled product through the delivery surface the TDs prescribe, drives its story's Acceptance, exhibits the observable outcome, and uses the real value-delivering component — no stubs.`
     : ''
   const retry = priorFailure
     ? `\n## Note from the orchestrator (prior dispatch did not clear)\n${priorFailure}\nThe working tree already holds the staged work from the prior dispatch(es) on this pass. Inspect the current state first and fix forward — repair or re-run what failed, but do NOT blindly redo a task that already landed (a non-idempotent edit applied twice corrupts the tree).\n`
@@ -354,17 +412,18 @@ ${hasSpec ? 'Path: ' + specPath : 'No separate spec file — the plan is the rec
 
 ## This pass: Pass ${p.number} — ${p.name}
 Goal: ${p.goal}
-Falsifier (what the validator will argue against): ${p.falsifier}
+Falsifier (the observation that would mean this pass quietly failed to deliver): ${p.falsifier}
 Position: pass ${idx + 1} of ${total}.
 ${acceptanceNote}${retry}
 ## Tasks in this pass (verbatim)
 ${(p.tasks || []).map(t => `### Task ${t.number}\n${t.text}`).join('\n\n')}
 
 ## Discipline
+- The user is taking your DONE at face value. They designed this plan, but they will not re-read your diff line by line, and a subtle gap — a handler that exists but isn't wired, a test that passes without exercising the story — is exactly what they can't catch. You are the last set of eyes on this work. Before returning DONE, re-read your own diff against the pass goal and the Falsifier above, the way you'd check work for someone who depends on it being right.
 - Read files before editing — the tree may already hold work from earlier tasks or a prior dispatch of this pass.
 - Deliver THIS pass only; do not do work that belongs to other passes.
 - Default to rigor on any tradeoff the plan/spec leaves open (correctness, completeness, durability, atomicity, no-data-loss over the cheaper shape); leave a code comment naming the property you protected.
-- **Completeness is the floor; the only divergence is overshoot.** Deliver the full intent of this pass's tasks and the spec stories they serve. When something is ambiguous or under-specified, resolve it by the necessity test: build whatever is *necessary* for the relevant user-outcome to actually hold — including pieces the spec never spelled out (the proto wiring, the emit site, the registration that does real work) — and nothing *adjacent* the stories do not require. NEVER defer, narrow, stub, no-op, or leave a "TODO / out of scope / later pass" in place of real work; a deferral is not a legal outcome — the no-deferral audit catches them and forces re-work. If you genuinely cannot finish a piece, that is a BLOCKED (below), not a silent drop.
+- **Completeness is the floor; the only divergence is overshoot.** Deliver the full intent of this pass's tasks and the spec stories they serve. When something is ambiguous or under-specified, resolve it by the necessity test: build whatever is *necessary* for the relevant user-outcome to actually hold — including pieces the spec never spelled out (the proto wiring, the emit site, the registration that does real work) — and nothing *adjacent* the stories do not require. NEVER defer, narrow, stub, no-op, or leave a "TODO / out of scope / later pass" in place of real work; a deferral is not a legal outcome — it ships a gap the user will only discover when the feature silently doesn't work for them. If you genuinely cannot finish a piece, that is a BLOCKED (below), not a silent drop.
 - The pass leaves the tree in a working state — never broken.
 - Checkpoint after every task with \`git add -A\` (staging, not committing). NEVER revert/reset/stash/clean the tree, even one file — fix forward by editing. Do NOT commit.
 
@@ -372,7 +431,7 @@ ${(p.tasks || []).map(t => `### Task ${t.number}\n${t.text}`).join('\n\n')}
 If a task mutates a file under \`.ok-planner/design/concepts/\`, \`design/stories/\`, \`design/decisions/\`, or \`design/tensions/\`, keep the body self-contained AND current-state only: no file paths, no \`code:\`/\`pkg:\` citations, no external-doc references (\`docs/...\`, READMEs, sibling-repo paths), no quoted code or lint allowlists, no "Owns / Does NOT own" sections naming code paths, no \`## Notes\` / \`## History\` / \`## Changelog\` section, no dated audit-trail entries, no "previously called X" / "used to be Y" / "changed per spec Z" lines, no forward-looking "TODO" / "deferred" / "will be replaced" content. Allowed citations: other artifact slugs (concept / story / decision) and annotation IDs (\`@blessed-invariant: N\`, \`@story:\`, \`@decision:\`). Rewrite each affected section to describe the artifact as it now stands; git carries the lineage. If a task's wording leaks a path, an audit-trail line, or any backward/forward-looking framing, rewrite it as you implement — that counts as a divergence the completion auditor will record.
 
 ## BLOCKED — the only two reasons to stop short
-1. Credentials/access only the user can provide. 2. An unauthorized destructive/irreversible action. Anything else ("needs discussion", "the plan was wrong", "more coupled than expected", "I'd like approval") is NOT blocked — make the call from spec intent and deliver. A validator critique you disagree with is NOT a block either — re-dispatch with their critique addressed.
+1. Credentials/access only the user can provide. 2. An unauthorized destructive/irreversible action. Anything else ("needs discussion", "the plan was wrong", "more coupled than expected", "I'd like approval") is NOT blocked — make the call from spec intent and deliver. A review critique you disagree with is NOT a block either — address it and deliver.
 
 ## Your return value (structured)
 Return the report object: status DONE when every task is done and the work fully satisfies the pass's Falsifier brief; BLOCKED with the bullet + detail only if one genuinely applies; OFF_PATTERN if you could not deliver and it is not a valid BLOCKED. List each task's number and done-state.`
@@ -381,7 +440,7 @@ Return the report object: status DONE when every task is done and the work fully
 function validatorPrompt(p) {
   const hasSpec = specPath && specPath !== 'none'
   const storyContext = p.isAcceptancePass
-    ? `\n\nThis is an **acceptance pass** for STORY-${p.storySlug}. Read the story in the spec at ${specPath} — it carries Acceptance (a user action producing an observable outcome, in user terms), Falsifier (the user-observable absence that proves the story not delivered), and Proof (the artifact form the implementer was told to produce).`
+    ? `\n\nThis is an **acceptance pass** for ${storyRefs(p)}. Read each story in the spec at ${specPath} — it carries Acceptance (a user action producing an observable outcome, in user terms), Falsifier (the user-observable absence that proves the story not delivered), and Proof (the artifact form the implementer was told to produce). For a shared pass, judge EVERY story it serves: each must have its own proof artifact and its own observable assertion — one story exhibited does not clear the others.`
     : ''
   return `You are the **validator** for one pass of a plan. Your job is adversarial: argue that the pass does NOT deliver. Default to disbelief; require concrete evidence in the diff before agreeing.
 
@@ -404,7 +463,33 @@ Falsifier brief: ${p.falsifier}${storyContext}
 
 4. **Did the change introduce bugs or regressions?** A diff that changes a shared surface (a route, a type field, a symbol, a contract) has callers, importers, clients, and adjacent components that depend on it. Sweep the codebase for every dependent site and verify the implementer swept them too. A dependent site that wasn't updated is a regression the pass introduced — even when nothing in the spec or the Falsifier named it.
 
-5. **For acceptance passes: check the proof.** Has the implementer produced the named proof artifact? Does it boot the real assembled product through the real entry point, or construct components in-process and call them directly? (The latter is hollow.) Is the value-delivering component real and doing real work, or stubbed? Would a third party reading or running the artifact conclude the story is delivered?
+5. **For acceptance passes: check the proof.** Has the implementer produced the named proof artifact? Does it boot the real assembled product through the real entry point, or construct components in-process and call them directly? (The latter is hollow.) Is the value-delivering component real and doing real work, or stubbed? Would a third party reading or running the artifact conclude the story is delivered? Also: **does the proof artifact carry an \`@story:<slug>\` annotation** in a top-of-file comment? A proof file without the annotation is not linked to its story for coverage purposes — flag it as a missing annotation, even if the proof otherwise exhibits the story correctly. The plan's proof task should have directed the implementer to include it; if it didn't, the validator catches it here.
+
+5a. **For any pass that touches a \`@story:<slug>\`-annotated file**: confirm the touch is accounted for. A modification to a \`@story:<slug>\`-annotated file is acceptable when (i) the spec's \`## Proof changes\` section has an A/B/C entry for the story, OR (ii) the modification is ambient (a refactor that incidentally touches the file's call site without changing what it exhibits — same value-delivering component, same observable outcome, same Acceptance trigger). If neither holds — the diff touches a protected file and the spec didn't enumerate it and the touch is not ambient — the pass does NOT deliver. This catches off-spec proof modifications at validator time, before they ship.
+
+5b. **For any pass that modifies files under \`.ok-planner/design/\`**: audit each modified artifact body (\`design/concepts/<slug>.md\`, \`design/stories/<slug>.md\`, \`design/decisions/<slug>.md\`, \`design/tensions/<slug>.md\`) against the canonical artifact rules. The rules canonically live in \`skills/_shared/artifact-definitions.md\` — for the validator's purposes, the mechanically-checkable subset is:
+
+  **SELF-CONTAINMENT-RULE** (concept/story/decision bodies — grep against the diff for):
+  - File or directory paths: \`\\b\\w+/\\w+\\.\\w+\\b\` (any \`foo/bar.ext\` form), \`\\bcode:\\`, \`\\bpkg:\\`, \`docs/\`, \`README\`, \`CHANGELOG\`, sibling-repo paths.
+  - Citation forms: \`code:foo.go::Symbol\`, \`pkg:github.com/...\`, bare URLs (\`https?://\`).
+  - Quoted code blocks (triple-backtick) inside artifact bodies (the templates have them, but a written concept body should not).
+  - \`## Owns\` / \`## Does NOT own\` section headers.
+
+  **CURRENT-STATE-ONLY-RULE** (concept/story/decision/tension bodies):
+  - \`## Notes\` / \`## History\` / \`## Changelog\` section headers.
+  - Dated audit-trail lines: \`^\\s*\\d{4}-\\d{2}-\\d{2}\\s+[—–-]\\s\`.
+  - Backward-looking phrases: \`previously called\`, \`used to live\`, \`was tightened per spec\`, \`\\(was\\s+\\S+\\)\`, \`changed per spec\`.
+  - Forward-looking phrases: \`we plan to\`, \`will be replaced\`, \`TODO:\`, \`deferred\`, \`open question for later\`.
+
+  **TENSION-SURFACE-RULE** (tension bodies only):
+  - Inside \`## Resolution candidates\` section: any of the SELF-CONTAINMENT-RULE patterns above are violations. \`## What is muddy\` and \`## Evidence\` may cite paths.
+
+  **PROOF-PROTECTION-RULE** (when the diff includes story-file mutations):
+  - A story-file \`Proof:\` field change must trigger an audit of every \`@story:<slug>\`-annotated file in the codebase — confirm each still satisfies the new Proof field text.
+
+  Any violation found is a pass-blocking issue — the implementer wrote design-doc content that violates the canonical rules. The fix is to rewrite the offending lines as path-free, current-state-only prose. The validator surfaces each violation as a critique line (file:line + which rule + the offending text); the implementer fixes on next dispatch.
+
+  This check runs at validator time precisely so drift does not accumulate until cycle 2 / \`/review-design\` has to clean it up — by then there may be dozens of edits in the diff and the originating context is gone. Catching at pass close means same-turn fix with full implementer context.
 
 6. **Check the Falsifier brief.** Does the absence the Falsifier names hold against the diff? If you can point at the code and show the absence is real, the pass does NOT deliver.
 
@@ -456,6 +541,57 @@ Read the pass, the spec, and the CURRENT working tree (the prior implementer's s
 - rootCause: one-line read of why the prior attempt stalled (when not genuine)
 - approach: the different approach to try (when not genuine)
 - humanAsk: the specific user input needed (when genuine)
+`
+}
+
+function interimReviewPrompt(passesCleared, passesTotal) {
+  const hasSpec = specPath && specPath !== 'none'
+  return `You are the **interim reviewer** for a plan mid-execution. ${passesCleared} of ${passesTotal} passes have cleared; the rest have NOT run yet. Your job is a holistic code review of the work delivered so far, so quality issues get fixed now instead of piling up to the end of the run.
+
+## Context
+Plan: ${planPath}
+${hasSpec ? 'Spec: ' + specPath : 'No separate spec file — the plan is the record of intent.'}
+
+## Scope — the accumulated uncommitted work
+All of the plan's work so far is uncommitted. Run \`git status\`, \`git diff\`, \`git diff --staged\` (untracked files included) before forming any findings. Read modified and new source files in their entirety for context. Working-tree state is your subject.
+
+## Review focus
+- Correctness: bugs, edge cases, off-by-one errors
+- Safety: data loss, security issues, resource leaks, irreversible operations
+- State integrity: can we get stuck in a state? Double-execute? Skip steps?
+- Load-bearing properties: name the properties the spec/plan depend on (durability, atomicity, ordering, idempotency, no-data-loss) and verify the code actually guarantees each — not just on the happy path
+- Cross-pass drift: the per-pass validators each saw one pass; you see all of them together. Duplicated helpers, inconsistent naming or contracts between passes, a later pass quietly diverging from a convention an earlier pass set
+- Dead code, unused imports, stale comments
+- Pre-existing issues in any file you read — report them too
+
+## What NOT to flag — this is a mid-run review
+- Work that belongs to passes that have not run yet. The plan is ${passesCleared}/${passesTotal} done; absence of future-pass work is the expected state, not a finding. Only flag a gap if it falls inside the passes already cleared.
+- Spec-completeness sweeps (stubs, TODOs, hollow proofs) beyond what you naturally hit — the no-deferral audit runs that systematically at the end.
+- Design-doc compliance under \`.ok-planner/design/\` — the final review handles it.
+
+## Output
+Do NOT categorize by severity — every issue you list goes to a fixer. Return the findings array; for each: location (file:line), problem, why it matters, how to fix. Return an empty findings array only when the accumulated work is genuinely clean.
+`
+}
+
+function interimFixPrompt(findings) {
+  const list = findings.map((f, i) => `${i + 1}. ${f.location} — ${f.problem}\n   Why: ${f.why || '(unstated)'}\n   Suggested fix: ${f.fix || '(reviewer left the fix to you)'}`).join('\n')
+  return `The interim reviewer found ${findings.length} issue(s) in the plan's accumulated work. Fix every one of them — no triage, no deferral.
+
+${specPath && specPath !== 'none' ? `Use the spec at ${specPath} as the source of intent.` : `Use the plan at ${planPath} as the source of intent.`}
+
+## Findings to fix
+${list}
+
+## Discipline
+- Read each cited file before editing.
+- Fix the underlying problem, not the symptom the reviewer quoted.
+- Stay inside the work already delivered — do NOT build work that belongs to passes that have not run yet, even if a fix tempts you toward it.
+- Do NOT introduce stubs, TODOs, or deferrals while fixing.
+- Leave the tree in a working state.
+- Checkpoint with \`git add -A\` after each fix. NEVER revert/reset/stash/clean; do NOT commit.
+
+When every finding is fixed, report DONE.
 `
 }
 
@@ -553,11 +689,21 @@ function verifierPrompt() {
 
 function completionAuditPrompt() {
   const specRead = specPath && specPath !== 'none' ? `spec ${specPath}; ` : ''
-  return `You are the **completion auditor**. The plan is complete, the verification gate passed, and the no-deferral gate is clean. Your job is to produce a three-section report covering 100% of the spec: every story's proof exhibited working, every technical decision in the spec accounted for as kept or diverged.
+  return `You are the **completion auditor**. The plan is complete, the verification gate passed, and the no-deferral gate is clean. Your job is to produce a four-section report covering 100% of the spec PLUS coverage divergences surfaced by the closing audit: every story's proof exhibited working, every technical decision in the spec accounted for as kept or diverged, every proof-coverage divergence surfaced.
 
 Read: plan ${planPath}; ${specRead}the spec's \`## Manifest\` section (the contract you walk); the diff; and any proof artifacts the implementer produced (demo scripts, example files, executable proofs).
 
-Write the report to ${planPath.replace(/\.md$/, '')}-completion-report.md with these three sections in order:
+Before writing the report, run the **closing coverage + intent-drift audit**:
+
+**Coverage check (whole-corpus, cheap).** For every live story in \`.ok-planner/design/stories/<slug>.md\`, grep the codebase for \`@story:<slug>\` annotations (\`rg -n '@story:\\s*<slug>'\`). Record every story with **zero** matches — that story has no proof artifact (or its proof was removed, or its annotation drifted).
+
+**Intent-drift check (spec-scoped, judgment).** For every story the spec touched (mutated under \`## Design changes\` or named in \`## Proof changes\`) AND every \`@story:<slug>\`-annotated file modified in the diff: read the proof file and read the story's current \`Proof:\` field. Judge whether the proof still satisfies the story's Proof field. Verdict per artifact: **satisfies** / **does not satisfy** / **uncertain**. Cite file:line for any "does not satisfy" or "uncertain" verdict — name what the Proof field requires that the artifact does not exhibit.
+
+**Annotation integrity (cheap).** \`rg -n '@story:\\s*\\S+'\` across the codebase. For every annotation, confirm the slug resolves to a live \`stories/<slug>.md\` file. Annotations pointing at retired or missing story slugs are dangling — record them.
+
+Findings from these three checks land in section 4 of the report.
+
+Write the report to ${planPath.replace(/\.md$/, '')}-completion-report.md with these four sections in order:
 
 ## 1. Proof walkthrough
 For every story in the spec's manifest:
@@ -565,6 +711,7 @@ For every story in the spec's manifest:
 - The proof artifact's path (the file the implementer produced).
 - A summary of what the artifact exhibits (what running or reading it shows).
 - The artifact's invocation (the command to run it, or the path to read it).
+- Whether the artifact carries the \`@story:<slug>\` annotation (it must — flag absence as a process defect).
 - Status: EXHIBITS WORKING (the artifact runs / reads as proving the story) or GAP (the artifact is missing, hollow, or exhibits something other than the story). A GAP here is unexpected — the no-deferral audit should have caught it; flag it as a process defect if present.
 
 ## 2. Technical decisions kept
@@ -581,11 +728,22 @@ For every TD in the spec where the implementation took a different shape than th
 - Flavor: **improved** (implementer found a better shape), **selected** (spec left a choice open and the implementer picked), or **necessitated** (work the spec did not name but the necessity rule required for a story to hold).
 - Reason: one or two sentences.
 
+## 4. Coverage divergences
+For every finding from the closing coverage + intent-drift audit. Each entry is one of three kinds:
+
+- **Coverage gap** — a live story with zero \`@story:<slug>\` annotations in the codebase. Name the story slug; note whether the spec touched the story (if so, the validator should have caught this — process defect); name what's needed to resolve (restore a proof artifact, or open a brainstorm to deprecate the story).
+- **Intent drift** — a \`@story:<slug>\`-annotated proof file whose content no longer satisfies the story's \`Proof:\` field. Quote the relevant excerpt from the story's Proof field; quote what the proof actually exhibits; name file:line. Note whether the spec had a \`## Proof changes\` entry for this story (if so and the entry was "A. Preserve" but the proof drifted, that's a process defect — the validator should have caught it).
+- **Dangling annotation** — an \`@story:<slug>\` annotation pointing at a slug that doesn't resolve to a live story file. Name the annotation site and the unresolved slug. Note whether the spec removed the story (if so, the implementer should have removed all annotations too — process defect).
+
+Each entry includes a brief recommendation: **accept as informational** (the divergence is known and intentional, just record it), **course-correct now** (open a brainstorm to address — e.g., restore the proof, deprecate the story, rewrite the annotation), or **bounce back to the implementer** (a process defect the implementer should fix before close).
+
+A section with no findings should still be present in the report, with the text "No coverage divergences." — explicit zero is a stronger signal than absence.
+
 ## Coverage check (at the bottom of the report)
-A short summary: stories exhibited / total in manifest; TDs kept + TDs diverged should equal total TDs in manifest. Flag any mismatch as a process defect.
+A short summary: stories exhibited / total in manifest; TDs kept + TDs diverged should equal total TDs in manifest; coverage divergences by kind (gaps / drifts / dangling). Flag any mismatch as a process defect.
 
 ## Your return value
-Return { path: <the report path you wrote>, proofsExhibited, decisionsKept, decisionsDiverged }.
+Return { path: <the report path you wrote>, proofsExhibited, decisionsKept, decisionsDiverged, coverageGaps, intentDrifts, danglingAnnotations }.
 `
 }
 
@@ -683,7 +841,7 @@ for (let i = 0; i < passes.length; i++) {
       break
     }
 
-    priorFailure = `The validator rejected your DONE. The pass does NOT deliver because:\n\n${(verdict && verdict.critique) || '(no critique returned)'}\n\nEvidence cited:\n${(verdict && verdict.evidence) || '(none)'}\n\nThe pass's Falsifier brief is: ${p.falsifier}\n\nAddress the validator's critique and re-deliver.`
+    priorFailure = `Your DONE was reviewed and rejected. The pass does NOT deliver because:\n\n${(verdict && verdict.critique) || '(no critique returned)'}\n\nEvidence cited:\n${(verdict && verdict.evidence) || '(none)'}\n\nThe pass's Falsifier brief is: ${p.falsifier}\n\nAddress the critique and re-deliver.`
     log(`pass ${p.number}: validator rejected on attempt ${attempt}, re-dispatching`)
   }
 
@@ -695,6 +853,39 @@ for (let i = 0; i < passes.length; i++) {
   }
   cleared.push(p.number)
   log(`pass ${p.number} cleared (${cleared.length}/${passes.length})`)
+
+  // Interim review checkpoint. Every REVIEW_CADENCE cleared passes (counted
+  // across resumes via priorCleared), sweep the accumulated work with a
+  // reviewer ↔ fixer loop. Best-effort, NOT a gate: residual findings flow
+  // to the final skill-side review-work anyway, so non-convergence logs and
+  // continues rather than escalating. Skipped after the final pass — the
+  // final review runs immediately afterward, so an interim sweep there is
+  // redundant (a pass count not divisible by the cadence is fine for the
+  // same reason).
+  const totalCleared = priorCleared + cleared.length
+  if (totalCleared % REVIEW_CADENCE === 0 && i < passes.length - 1) {
+    let residual = -1
+    for (let cycle = 1; cycle <= 2; cycle++) {
+      const review = await agent(interimReviewPrompt(totalCleared, priorCleared + passes.length), {
+        label: `interim-review@${totalCleared}#${cycle}`, phase: 'Execute', schema: INTERIM_REVIEW_SCHEMA,
+      })
+      if (!review) {
+        log(`interim review after ${totalCleared} passes: reviewer returned no result; continuing`)
+        break
+      }
+      if (!review.findings || review.findings.length === 0) {
+        residual = 0
+        break
+      }
+      residual = review.findings.length
+      log(`interim review after ${totalCleared} passes: ${review.findings.length} issue(s); dispatching fixer`)
+      await agent(interimFixPrompt(review.findings), {
+        label: `interim-fix@${totalCleared}#${cycle}`, phase: 'Execute',
+      })
+    }
+    if (residual === 0) log(`interim review after ${totalCleared} passes: clean`)
+    else if (residual > 0) log(`interim review after ${totalCleared} passes: fix cycles exhausted with issue(s) outstanding; the final review will converge them`)
+  }
 }
 
 phase('Verify')
@@ -772,6 +963,18 @@ return { status: 'complete',
   root-cause read and a different approach (re-dispatch). A second
   BLOCKED after a strategist intervention escalates as
   `work-stuck`.
+- **Interim review checkpoint every 3 cleared passes** (counted
+  across resumes). A holistic reviewer sweeps the accumulated
+  uncommitted work — review-work's correctness / safety /
+  state-integrity dimensions plus cross-pass drift the per-pass
+  validators can't see — and a fixer clears every finding, no
+  severity triage. It is an **amortizer, not a gate**: capped at 2
+  reviewer ↔ fixer cycles, and residual findings log and flow to
+  the final skill-side `review-work` instead of escalating. It
+  never flags work belonging to passes that haven't run, and it is
+  skipped after the final pass (the final review follows
+  immediately; a pass count not divisible by 3 needs no special
+  handling for the same reason).
 - **No bare repeats.** A re-dispatch always carries new input — the
   validator's critique on attempt 2, the strategist's different
   approach on a BLOCKED retry. Raising the cap without adding

@@ -40,7 +40,7 @@ Skills chain by instructing the orchestrator to invoke the next one (e.g., `brai
 
 ## ok-planner's review discipline (important when editing skills here)
 
-The ok-planner pipeline enforces a **no-triage** policy on code review results. Review skills (`review-work`, `review-plan`, `review-commits`, `review-files`, `review-feature`) all terminate by invoking `ok-planner:review-cleanup`, which dispatches a fixer subagent and loops until the reviewer reports zero issues. Guard rail: max 3 fix-review cycles.
+The ok-planner pipeline enforces a **no-triage** policy on code review results. Review skills (`review-work`, `review-design`, `review-plan`, `review-commits`, `review-files`, `review-feature`) all terminate by invoking `ok-planner:review-cleanup`, which dispatches a fixer subagent and loops until the reviewer reports zero issues. Guard rail: max 3 fix-review cycles.
 
 When editing review skills, preserve two invariants:
 1. The reviewer output flows to `review-cleanup` **verbatim** — do not add filtering, categorization, or severity triage logic.

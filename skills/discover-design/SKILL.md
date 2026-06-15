@@ -18,15 +18,28 @@ that resolves the tensions surfaced here.
 
 ## Why this exists
 
-The design docs this skill bootstraps are the **canonical noun catalog**
-for the project — what concepts exist, what they mean, where their
-boundaries are, what invariants they hold. The relationship between
-design and code is **code references design**, not the other way
-around: code at points of enforcement annotates back to the design
-(the way `@blessed-invariant` annotations already do for properties),
-and the design owns the definition. A refactor that moves files around
-does not invalidate the design; a code path that diverges from a
-concept's stated boundary is a defect.
+The design docs this skill bootstraps are the project's **durable
+identity** — the high-level, general framing of what the project is
+and what it owes its users. Four catalogs: concepts (load-bearing
+nouns), stories (durable user expectations), decisions (architectural
+tradeoffs), tensions (open questions). Together they answer "what
+kind of thing is this project, at the altitude above any specific
+implementation?"
+
+The directory is named `design/` for historical reasons. The label is
+not load-bearing — `design/` does NOT hold specific designs of
+interfaces, routes, CLI grammars, schema details, or implementation
+diagrams. Those live in code, in `specs/`, and in other documentation.
+See `skills/_shared/artifact-definitions.md` for the canonical
+"What 'design' means" framing.
+
+The relationship between design and code is **code references
+design**, not the other way around: code at points of enforcement
+annotates back to the design (the way `@blessed-invariant`
+annotations already do for properties), and the design owns the
+definition. A refactor that moves files around does not invalidate
+the design; a code path that diverges from a concept's stated
+boundary is a defect.
 
 Capturing the as-is design plus its tensions up front is useful even
 before refinement: future reviewers can distinguish a design choice
@@ -221,90 +234,36 @@ only thing the user sees during this skill's execution.
 
 ## Shared rule blocks (transclude into dispatches)
 
-Some embedded prompts below carry `{{SELF-CONTAINMENT-RULE}}` and
-`{{TENSION-SURFACE-RULE}}` placeholders. When you assemble a subagent
-prompt for dispatch, replace each placeholder with the **body** of the
-matching `###` block in this section (the prose under the header, not
-the header line) — the same substitution you already do for the
-bracketed `[plan path]`-style values. The convention: `{{...}}` flags a
-static block to inline; `[...]` flags a per-run value to fill.
+The canonical artifact definitions, templates, and rule blocks live in
+`skills/_shared/artifact-definitions.md`. That file is the single source
+of truth — every skill that authors, reviews, or mutates concepts /
+stories / decisions / tensions reads from it.
 
-These two rules govern what may appear in concept bodies and tension
-resolution sections. Three separately-dispatched subagents need them —
-the extractor (which authors the docs), the extraction reviewer (which
-audits them), and the back-edge extractor (which mutates them). Each is
-its own dispatch and sees only its own prompt, so defining the rules
-once here and transcluding them keeps the wording from drifting between
-the agent that writes and the agent that checks.
+The embedded prompts below carry `{{TOKEN}}` placeholders. When you
+assemble a subagent prompt for dispatch, replace each placeholder with
+the **body** of the matching `###` block in
+`skills/_shared/artifact-definitions.md` (the prose under the header,
+not the header line) — the same substitution you already do for the
+bracketed `[plan path]`-style values. The convention: `{{...}}` flags
+a static block to inline; `[...]` flags a per-run value to fill.
 
-### {{SELF-CONTAINMENT-RULE}}
+Tokens used in this skill's dispatches:
 
-Concept, story, and decision bodies are self-contained. The design
-owns the definition; code references it via `@concept:`, `@story:`,
-and `@decision:` annotations. A refactor that moves files around
-does not invalidate an artifact, and an external doc that moves to
-another repo does not orphan one. Citations in artifact body are
-restricted to forms that survive the codebase moving.
+- `{{CONCEPT-DEFINITION}}`, `{{CONCEPT-TEMPLATE}}`
+- `{{STORY-DEFINITION}}`, `{{STORY-TEMPLATE}}`
+- `{{DECISION-DEFINITION}}`, `{{DECISION-TEMPLATE}}`
+- `{{TENSION-DEFINITION}}`, `{{TENSION-TEMPLATE}}`
+- `{{SELF-CONTAINMENT-RULE}}`
+- `{{TENSION-SURFACE-RULE}}`
+- `{{CURRENT-STATE-ONLY-RULE}}`
+- `{{PROOF-PROTECTION-RULE}}`
 
-**The rule applies to frontmatter as well as body.** A `references:`
-frontmatter field that lists `_discover/...` artifacts, spec paths,
-sketch paths, or any other file-form citation is the same durability
-problem the rule exists to prevent — those paths rot when the
-scaffolding is retired, when specs are archived, or when the repo is
-reorganized. Once an artifact is baked, the lineage that produced it
-lives in the `_discover/` scaffolding (as history) and in the git
-history of the artifact file itself; the artifact body and frontmatter
-carry no lineage. Frontmatter is restricted to slug-form metadata
-only: `concept:` / `story:` / `decision:` / `tension:`, `status:`,
-`aliases:` (list of names), and for tensions `category:` and
-`affects:` (list of slugs). Path-form `references:` does not belong
-in any artifact's frontmatter; if a `discover-design` or
-earlier-version run wrote one, strip it.
-
-**Allowed in artifact body** (concepts / stories / decisions):
-- Other artifact slugs across catalogs: `see also: claim-handle`,
-  `concept:claim-handle`, `story:claim-co-holder`,
-  `decision:persistence`.
-- Annotation IDs the codebase uses (e.g. `@blessed-invariant: 4`,
-  `@agent-contract: X`) — the ID is stable across file moves; the
-  file path is not.
-
-**Disallowed in artifact body** (concepts / stories / decisions):
-- File or directory paths (`foo/bar.go`, `pkg:foo/bar/baz`,
-  `services/widget/`, etc.) — bare or in any citation form, in-tree or
-  in a sibling repo.
-- Citation forms `code:foo.go::Symbol`, `pkg:github.com/...`, bare
-  URLs, "the code at X" pointers.
-- References to external documentation (`docs/...`, READMEs, CHANGELOG,
-  sibling-repo paths).
-- Quoted code, quoted lint-config allowlists, or quoted external prose.
-  If a property matters, state it as a property of the artifact; the
-  code is responsible for enforcing it.
-- "Owns / Does NOT own" sections that name code paths. Concept
-  Boundaries is the in-vs-out section, and it names neighbor concepts
-  by slug.
-
-If an artifact feels like it can't say what it needs to without naming
-a file, that's either (a) a hint that the artifact's boundary is
-muddier than the current text claims — file a tension — or (b)
-material that belongs in the `_discover/` scaffolding (Code surface
-section), not in the artifact body.
-
-### {{TENSION-SURFACE-RULE}}
-
-The `## Evidence` section is a snapshot — it documents the specific code
-or prose that motivated the tension, and may rot when the cited surface
-moves. That's expected; tensions are point-in-time observations of
-muddiness. Code-citation evidence is fine in `## What is muddy` and
-`## Evidence`.
-
-The `## Resolution candidates` section is different: resolutions become
-spec instructions, and the spec lives forward in time. State resolution
-shapes as durable concept mutations (which concept's Definition /
-Boundaries / Invariants change, and how) and as durable code-discipline
-changes (what property the code will hold). Resolution shapes must NOT
-cite specific files, paths, or symbols — those will rot before the
-tension gets resolved.
+Multiple separately-dispatched subagents need these — the extractor
+(which authors the docs), the extraction reviewer (which audits them),
+the back-edge extractor (which mutates them). Each is its own dispatch
+and sees only its own prompt, so defining the rules once in the shared
+file and transcluding them keeps the wording from drifting between the
+agent that writes and the agent that checks.
 
 ## Phase 1 — Discoverer Subagent Prompt
 
@@ -599,67 +558,11 @@ Agent (general-purpose):
 
   ### What is a concept?
 
-  A noun the system traffics in. The bar is: a reviewer reading
-  code that mentions this noun needs a stable definition to know
-  what it means. Examples (concretely project-dependent):
-  - "frame", "claim", "node", "template", "instance", "lock",
-    "executor", "scope", "advisory lock", "blob", "userdata".
-  - Cross-cutting properties that have noun status:
-    "opacity", "verify-before-run guard", "auto-terminal".
-
-  One concept per file. Merge multiple `_discover/` entries when
-  they describe the same noun.
+  {{CONCEPT-DEFINITION}}
 
   ### Concept template
 
-  Write each concept to `.ok-planner/design/concepts/<slug>.md`.
-  Slug is the preferred name; aliases go inside the file.
-
-  ```markdown
-  ---
-  concept: <slug>
-  status: as-is
-  aliases:
-    - <other names this concept goes by in code/prose>
-  ---
-
-  # <Concept name>
-
-  ## What it is
-
-  <Definition. One paragraph. Should stand alone — a reader who
-  has never opened the repo should be able to identify what this
-  is.>
-
-  ## Purpose
-
-  <Why this concept exists. What it makes possible that a flatter
-  design without this concept could not. What problem its
-  presence solves.>
-
-  ## Boundaries
-
-  <What is in this concept, what is NOT (and lives in a neighbor
-  concept), and which adjacent concepts it interacts with. Name
-  the neighbors with their slugs (`see also: <slug>`).>
-
-  ## Invariants
-
-  <Load-bearing properties stated as properties of the concept,
-  not as descriptions of code. Annotated invariants
-  (`@blessed-invariant`, `@agent-contract`) belong here — list
-  them with their IDs if the codebase numbers them.>
-
-  ## Aliases
-
-  <Other names this concept currently goes by in code or prose
-  today. List only names that actually appear in the live
-  codebase or live prose — not retired names, not names
-  someone used to use. If multiple live names point at the
-  same concept, that is itself a tension candidate — produce a
-  corresponding tensions/ entry. Drop this section entirely if
-  there are no live aliases.>
-  ```
+  {{CONCEPT-TEMPLATE}}
 
   ### Self-containment rule (concepts, stories, decisions)
 
@@ -667,192 +570,27 @@ Agent (general-purpose):
 
   ### What is a story?
 
-  A user-outcome the running product already delivers — a
-  capability a user can observe by driving the assembled product.
-  The bar is: a reasonable user (or a third party watching one)
-  can see this happen, not by reading code but by using the
-  product. Examples (concretely project-dependent):
-  - "submit a claim and see it persisted"
-  - "create a widget and see its id"
-  - "receive the daily digest at 09:00 UTC"
-
-  **The delivery surface is not part of the story.** Which
-  surface a user reaches through — CLI verb, HTTP route, wire
-  message, scheduled job, UI — is a technical choice and lives
-  in `decisions/`, not in the story. The story names the
-  capability and what the user observes; the decision names how
-  the product exposes it. Two stories that describe the same
-  user-outcome through different surfaces are one story (the
-  surface is the decision's territory).
-
-  Discover stories from:
-  - Public surfaces the product exposes: CLI verbs, HTTP routes,
-    wire messages, scheduled jobs, subscribed events. (These
-    tell you a story is there; the surface itself goes into
-    `decisions/`, the user-outcome it serves into `stories/`.)
-  - End-to-end tests that drive the assembled product and
-    observe outcomes (these often name the story directly).
-  - README / docs sections describing what the product does for
-    its users.
-  - Spec history under `.ok-planner/history/specs/` if present —
-    every shipped spec carried stories that now describe what
-    the product does.
+  {{STORY-DEFINITION}}
 
   ### Story template
 
-  Write each story to `.ok-planner/design/stories/<slug>.md`.
-
-  ```markdown
-  ---
-  story: <slug>
-  status: as-is
-  ---
-
-  # <Short story title>
-
-  ## Story
-
-  As <role>, I can <capability>, so that <business value>.
-
-  ## Acceptance
-
-  <What the user does, in their terms> → <what they observe
-  happening>. The component that delivers the value is real (not
-  stubbed) — name it. The surface the user reaches through is a
-  technical decision (captured in `decisions/`), not part of the
-  story.
-
-  ## Falsifier
-
-  <The user-observable absence that would prove this story is NOT
-  delivered: the user takes the action and the promised result
-  never appears; the result appears but is unrelated to their
-  input; the result looks real but the underlying state is
-  synthetic (a stubbed or canned value-delivering component).>
-
-  ## Proof
-
-  <Demo | example | proof | all-of-the-above> — <what the proof
-  must exhibit to a third party so they would conclude the story
-  is delivered>.
-  ```
+  {{STORY-TEMPLATE}}
 
   ### What is a decision?
 
-  A technical choice the project has clearly made: one shape
-  adopted over an identifiable alternative. The bar is: a
-  reasonable engineer can identify both the choice and a
-  plausible different choice the project could have made.
-  Examples (concretely project-dependent):
-  - "persistence is Postgres with the `pgx` driver (alternatives:
-    SQLite, a different driver)"
-  - "claim recovery runs on a 30s tick (alternatives: longer
-    interval, event-driven recovery)"
-  - "handler registration is explicit (alternative: auto-discovery
-    via reflection)"
-
-  One decision per choice. Don't lump unrelated choices into one
-  file.
-
-  Discover decisions from:
-  - Architecture and configuration choices visible in code: which
-    library, which framework, which protocol, which storage shape,
-    which pattern.
-  - Comments and commit history that justify a choice.
-  - ADR-style files (if present) — extract the choice and
-    rationale, drop the historical narrative.
-  - Choices the `_discover/` Observations sections flag as
-    "choice with an identifiable alternative."
+  {{DECISION-DEFINITION}}
 
   ### Decision template
 
-  Write each decision to
-  `.ok-planner/design/decisions/<slug>.md`.
-
-  ```markdown
-  ---
-  decision: <slug>
-  status: as-is
-  ---
-
-  # <Short decision title>
-
-  ## Choice
-
-  <The option the project adopted. One or two sentences, concrete
-  and unambiguous.>
-
-  ## Rationale
-
-  <Why this choice over the alternatives. Source from code,
-  comments, ADRs, or the most plausible reading of the code's
-  shape. If the rationale is genuinely unclear, file a tension
-  rather than fabricating one.>
-
-  ## Alternatives
-
-  <The options the project could have taken instead. One bullet
-  each. Brief — these are not full proposals, just enough to
-  show what was on the table.>
-  ```
+  {{DECISION-TEMPLATE}}
 
   ### What is a tension?
 
-  Anything about the as-is design that is sloppy, unspecified,
-  unclear, overloaded, conflicting, or vestigial. Categories
-  (use these in frontmatter):
-
-  - `overloaded` — one name means multiple things.
-  - `unspecified` — something load-bearing has no name, or its
-    boundary is undefined.
-  - `unclear` — concept exists, but its definition is fuzzy or
-    different parts of the project disagree.
-  - `inconsistent` — same property implemented two ways, or same
-    concept spelled two ways, or same constraint with different
-    cutoffs.
-  - `conflicting` — two parts of the code or two prose sources
-    actively contradict each other.
-  - `vestigial` — concept named or annotated but no longer
-    load-bearing.
-  - `muddy-boundary` — adjacent concepts blur into each other.
+  {{TENSION-DEFINITION}}
 
   ### Tension template
 
-  Write each tension to `.ok-planner/design/tensions/<slug>.md`.
-
-  ```markdown
-  ---
-  tension: <slug>
-  category: overloaded | unspecified | unclear | inconsistent | conflicting | vestigial | muddy-boundary
-  status: open
-  affects:
-    - <concept-slug>
-    - <concept-slug>
-  ---
-
-  # <Short tension title>
-
-  ## What is muddy
-
-  <Describe the tension. Be specific. Quote code or prose where
-  helpful (with file:line). State exactly which two things
-  disagree, or what is missing, or what is overloaded.>
-
-  ## Why it matters
-
-  <What downstream consequence falls out of this tension.>
-
-  ## Resolution candidates (do NOT pick)
-
-  <List the resolution shapes the tension admits, without picking
-  one. If you don't see a clean shape, say so. refine-design
-  walks this with the user.>
-
-  ## Evidence
-
-  <Specific citations: code paths, prose paths, _discover/
-  entries.>
-  ```
+  {{TENSION-TEMPLATE}}
 
   ### Tension surface rule
 
@@ -860,41 +598,7 @@ Agent (general-purpose):
 
   ### Current-state-only rule
 
-  Concept, story, decision, and tension bodies describe the
-  project **as it stands today**. They are not journals and
-  they are not roadmaps. Two failure modes to avoid:
-
-  - **Historical content** — "changed on YYYY-MM-DD",
-    "previously called X", "used to live in foo/bar.go", "see
-    spec Z that introduced this", "was tightened per spec Q",
-    or any audit-trail line whose subject is *what changed*
-    rather than *what is*. Git already records what changed;
-    duplicating that in the design doc is at best
-    distracting, at worst the artifact ages into a changelog
-    nobody reads. **There is no `## Notes` / `## History` /
-    `## Changelog` section on any concept, story, decision,
-    or tension file.** If you find one (in a hand-written
-    artifact or an older-version output), strip it.
-  - **Forward-looking content** — "we plan to", "will be
-    replaced by", "TODO: tighten this", "out of scope for
-    now", "deferred to V2", "open question for later". A
-    design doc that names work not yet done invites readers
-    (and execute-plan agents) to defer against it. Open
-    ambiguities go in `tensions/`, where they are tracked as
-    explicitly unresolved; intended future changes go in a
-    spec, not the design doc. Nothing in the durable model is
-    aspirational.
-
-  The exception is the discovery scaffolding kept around as
-  judgment-call surface: `_discover/` (phase-1 raw notes) and
-  `review-notes.md` (agent-confessed uncertainty consumed by
-  `/refine-design`). Those are explicitly point-in-time
-  artifacts; the durable model is not.
-
-  When a spec changes a concept / story / decision, the spec
-  rewrites the affected section in place to reflect the new
-  state. The git commit carries the lineage. Do not paste a
-  dated entry into the artifact body.
+  {{CURRENT-STATE-ONLY-RULE}}
 
   ### Anti-padding
 
@@ -985,7 +689,7 @@ Agent (general-purpose):
     "changed per spec Z" lines, no forward-looking "TODO" /
     "deferred" / "will be replaced" content. Lineage lives in
     git; open items live in `tensions/`. See the
-    "Current-state-only rule" above.
+    "Current-state-only rule" under "Rules being enforced" below.
   - **Concept body is self-contained**: audit every concept body
     against the self-containment rule reproduced under "Rules
     being enforced" below. Pre-existing violations (in concept
@@ -1019,7 +723,7 @@ Agent (general-purpose):
   - **Story body is current-state only**: no `## Notes` /
     `## History` / `## Changelog` section, no dated audit-trail
     entries, no backward- or forward-looking phrasing. See the
-    "Current-state-only rule" above.
+    "Current-state-only rule" under "Rules being enforced" below.
   - **Story body is self-contained**: audit against the
     self-containment rule. No file paths or code citations in
     the body. Pre-existing violations are still issues.
@@ -1046,7 +750,8 @@ Agent (general-purpose):
   - **Decision body is current-state only**: no `## Notes` /
     `## History` / `## Changelog` section, no dated audit-trail
     entries, no backward- or forward-looking phrasing. See the
-    "Current-state-only rule" above. (Alternatives is the list
+    "Current-state-only rule" under "Rules being enforced"
+    below. (Alternatives is the list
     of options the project *could* have taken — that's not
     forward-looking; it's the as-is shape of the choice. But
     "we may switch to alternative X" or "the chosen option was
@@ -1081,13 +786,15 @@ Agent (general-purpose):
 
   ### Rules being enforced
 
-  The two self-containment checks above hold against these. This
-  reviewer runs as its own dispatch and does not see the extractor
-  prompt, so the rules are reproduced here in full.
+  The checks above hold against these. This reviewer runs as its
+  own dispatch and does not see the extractor prompt, so the rules
+  are reproduced here in full.
 
   {{SELF-CONTAINMENT-RULE}}
 
   {{TENSION-SURFACE-RULE}}
+
+  {{CURRENT-STATE-ONLY-RULE}}
 
   ### Cross-check
 
@@ -1363,15 +1070,30 @@ Agent (general-purpose):
   affected slugs.
   Do NOT add new artifacts that weren't authorized.
 
+  ### Artifact templates
+
+  When creating a new artifact file (only when explicitly
+  authorized by the request), use the matching template:
+
+  {{CONCEPT-TEMPLATE}}
+
+  {{STORY-TEMPLATE}}
+
+  {{DECISION-TEMPLATE}}
+
+  {{TENSION-TEMPLATE}}
+
   ### Rules for the docs you touch
 
-  Concept bodies you edit or create, and any tension you add, must
-  follow these. This step runs as its own dispatch, so the rules
-  are reproduced here in full.
+  Concept, story, decision, and tension bodies you edit or create
+  must follow these. This step runs as its own dispatch, so the
+  rules are reproduced here in full.
 
   {{SELF-CONTAINMENT-RULE}}
 
   {{TENSION-SURFACE-RULE}}
+
+  {{CURRENT-STATE-ONLY-RULE}}
 
   ### Anti-padding
 

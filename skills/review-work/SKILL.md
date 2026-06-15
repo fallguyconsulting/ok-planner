@@ -7,7 +7,7 @@ description: "ONLY activated by explicit /review-work slash command. Never auto-
 
 Review all uncommitted changes (staged, unstaged, and untracked files). This is the "am I done?" check before committing.
 
-For other review types, see: `/review-plan`, `/review-commits`, `/review-files`, `/review-feature`.
+For other review types, see: `/review-design` (whole-corpus design-doc audit), `/review-plan`, `/review-commits`, `/review-files`, `/review-feature`.
 
 ## Two independent cycles
 
@@ -130,169 +130,46 @@ If the reviewer found issues, invoke `ok-planner:review-cleanup` with the review
 
 Once `review-cleanup` reports clean (or hits its cap), proceed to the design-doc compliance cycle below.
 
-## Cycle 2 — Design-doc compliance
+## Cycle 2 — Design-doc compliance (focused)
 
-This cycle is independent of the code review above. It exists so that the design docs under `.ok-planner/design/` stay in compliance with the concept self-containment rule (canonically stated in `ok-planner:discover-design`'s SKILL.md). Drift in those files isn't a code defect, so the code-review cycle wouldn't surface it; it needs its own reviewer and its own fix loop.
+This cycle is independent of the code review above. It audits the design docs under `.ok-planner/design/` for compliance with the canonical artifact rules (concept / story / decision self-containment, tension surface, current-state-only — canonically stated in `skills/_shared/artifact-definitions.md`). Drift in those files isn't a code defect, so the code-review cycle wouldn't surface it; it needs its own reviewer and its own fix loop.
 
-The cycle runs unconditionally when `.ok-planner/design/concepts/` exists — even if the current uncommitted change didn't touch any file under `.ok-planner/design/`. Drift can leak in indirectly (a code refactor renames a thing a concept body had cited; a prior plan's design-doc mutations slipped a path into the body). The "Fix Every Bug" rule applies: pre-existing violations are in scope.
+**Cycle 2 is focused, not whole-corpus.** The assumption: if the design docs are maintained, drift only enters at change points. The cycle audits artifacts that the current uncommitted change plausibly touched — directly modified design files, plus artifacts whose slug is referenced from changed code or from an in-flight spec/plan. The whole-corpus sweep is a separate skill (`ok-planner:review-design`); invoke it explicitly when accumulated drift needs checking (after a `/discover-design` re-run, after a long quiet period, on demand, or when the focused cycle is suspect).
 
 If `.ok-planner/design/concepts/` does not exist, skip the entire cycle silently.
 
-### Compliance Reviewer Prompt
+### Compute the audit set
 
-Dispatch a reviewer subagent (separate from the code-review reviewer above):
+Run these steps to compute the focused audit set:
+
+1. **Directly modified design files.** Run `git status --porcelain` and `git diff --name-only` (also `git diff --staged --name-only`). Collect every changed file matching `.ok-planner/design/{concepts,stories,decisions,tensions}/*.md` (live artifacts; skip `_retired/`, `_resolved/`, `_rejected/` subpaths).
+
+2. **Slugs referenced in changed code.** From the same git change list, collect every non-design file. For each, grep for `@concept:\s*<slug>`, `@story:\s*<slug>`, `@decision:\s*<slug>` annotations. Collect the slugs. For each slug, the matching design file is `.ok-planner/design/{concepts,stories,decisions}/<slug>.md` (whichever kind matches the annotation prefix).
+
+3. **Slugs referenced in in-flight specs/plans.** From the git change list, collect every changed file matching `.ok-planner/specs/*.md` or `.ok-planner/plans/*.md`. Read each. Extract every artifact slug mentioned by any of these patterns:
+   - `STORY-<slug>` (spec manifest entries)
+   - `TD-<slug>` (spec manifest entries)
+   - `concept:<slug>`, `story:<slug>`, `decision:<slug>`, `tension:<slug>` (citation grammar references)
+   - Bullet lines under `## Design changes` referencing `<kind>/<slug>.md` paths
+   For each slug, the matching design file is `.ok-planner/design/<kind>s/<slug>.md`.
+
+4. **Union the three sets.** Deduplicate. Filter to files that actually exist (a slug citation pointing at a not-yet-created artifact is fine — it'll exist after the spec runs; don't audit a missing file).
+
+5. **If the audit set is empty, skip cycle 2 silently.** No spec/plan in flight, no design files modified, no annotated code changes → nothing to audit at change points. The whole-corpus path remains available via `/review-design`.
+
+### Dispatch the reviewer
+
+Read `skills/_shared/design-doc-compliance-reviewer.md` and dispatch the `{{DESIGN-DOC-COMPLIANCE-REVIEWER-PROMPT}}` block as a subagent. Substitute `[AUDIT SCOPE]` with:
 
 ```
-Agent (general-purpose):
-  ## Design-doc compliance review
+Audit the following artifact files (focused scope from the current uncommitted change). Files were selected because they were directly modified, are referenced by an `@concept:` / `@story:` / `@decision:` annotation in a changed code file, or are named by slug in an in-flight spec or plan:
 
-  ### Your job
-
-  Audit the project's design docs for compliance with the
-  concept self-containment rule and the tension surface rule
-  (both canonically stated in `ok-planner:discover-design`'s
-  SKILL.md). Surface every violation as an issue; a fixer will
-  rewrite. Do not triage. Pre-existing violations — in files
-  the current uncommitted change did not touch — are still in
-  scope.
-
-  ### Scope
-
-  In scope:
-  - Every `.md` file directly under
-    `.ok-planner/design/concepts/` (live concepts only — skip
-    files under `concepts/_retired/`).
-  - Every `.md` file directly under
-    `.ok-planner/design/tensions/` (live tensions only — skip
-    files under `tensions/_resolved/` and
-    `tensions/_rejected/`).
-  - `.ok-planner/design/concepts.md` (the auto-generated TOC).
-
-  Out of scope (do NOT flag content here):
-  - `.ok-planner/design/_discover/` — phase 1 scaffolding is
-    allowed to cite code paths freely.
-  - `.ok-planner/design/concepts/_retired/`,
-    `tensions/_resolved/`, `tensions/_rejected/` — terminal
-    state, historical record.
-  - `.ok-planner/design/review-notes.md` and any dated
-    rotations (`review-notes-YYYY-MM-DD.md`) — workflow
-    scratch.
-
-  ### Rules to enforce
-
-  **Concept self-containment rule** (applies to every live
-  `concepts/<slug>.md`):
-
-  Concept body is self-contained. The design owns the
-  definition; code references it via `@concept:` annotations.
-
-  Disallowed in concept body:
-  - File or directory paths in any form: `foo/bar.go`,
-    `services/widget/`, `pkg:github.com/...`, bare URLs,
-    `code:foo.go::Symbol`, "the code at X" pointers.
-  - References to external documentation: `docs/...`,
-    READMEs, CHANGELOG, sibling-repo paths.
-  - Quoted code, quoted lint-config allowlists, quoted
-    external prose.
-  - "Owns / Does NOT own" sections that name code paths.
-    (Boundaries is the in-vs-out section; it names neighbor
-    concepts by slug.)
-
-  Allowed in concept body:
-  - Other concept slugs (`see also: claim-handle`,
-    `concept:claim-handle`).
-  - Annotation IDs the codebase uses (`@blessed-invariant: N`,
-    `@agent-contract: X`).
-
-  **Current-state only.** Concept, story, and decision bodies
-  describe the project as it stands today. Flag any of:
-  - A `## Notes`, `## History`, or `## Changelog` section.
-  - Dated audit-trail entries (`YYYY-MM-DD — <what changed>`).
-  - Backward-looking phrasing: "previously called X", "used
-    to live at Y", "was tightened per spec Z", "(was 60s)".
-  - Forward-looking phrasing: "we plan to", "will be replaced",
-    "TODO", "deferred", "open question for later".
-
-  Lineage lives in git history, not the artifact body. Open
-  ambiguities go in `tensions/`, not in a forward-looking
-  note in the concept itself.
-
-  **Tension surface rule** (applies to every live
-  `tensions/<slug>.md`):
-
-  - `## What is muddy` and `## Evidence` — code-citation
-    evidence is fine here. Don't flag citations.
-  - `## Resolution candidates` — path-free. State changes at
-    the concept level (which concept's Definition /
-    Boundaries / Invariants would change), not the
-    implementation level. Any file path, symbol citation, or
-    external-doc reference here is a violation.
-
-  **TOC consistency** (`concepts.md`):
-  - Every TOC bullet's slug matches a live
-    `concepts/<slug>.md` file. (Retired-only entries belong
-    in the "Retired concepts" section, not the live list.)
-  - Every live `concepts/<slug>.md` (non-retired) has a TOC
-    entry.
-  - One-sentence TOC definitions follow the same
-    self-containment rule — no paths, no external-doc refs.
-
-  **Cross-reference integrity**:
-  - Every `see also: <slug>` and `concept:<slug>` referenced
-    from a concept body resolves to a live concept file. A
-    reference to a retired-only target is a violation —
-    either repoint to the live successor or remove.
-  - Every tension's `affects:` frontmatter slug resolves to
-    a live concept.
-
-  ### How to scan
-
-  Walk every in-scope file. For each violation record:
-  - File path
-  - Line number or section heading
-  - The offending text (quote it)
-  - Which rule it violates
-  - How to fix (rewrite as path-free prose, move the content
-    to `_discover/`, file a tension if the concept genuinely
-    can't say what it needs to without naming a path, etc.)
-
-  ### Pre-existing issues
-
-  Pre-existing drift that the current uncommitted change
-  didn't introduce is still in scope. The "Fix Every Bug You
-  Find" rule applies — surface every violation; the fixer
-  will fix every one.
-
-  ### Output format
-
-  ```
-  Status: Approved | Issues Found
-
-  ## Findings
-
-  (if Issues Found, one entry per violation:)
-
-  ### <file>:<line-or-section> — <one-line summary>
-  <Quoted offending text, which rule it violates, how to
-  rewrite.>
-
-  (if Approved:)
-
-  (empty Findings section)
-  ```
-
-  ### Anti-padding
-
-  - Don't flag content under `_discover/`, `_retired/`,
-    `_resolved/`, `_rejected/`, or `review-notes*.md`.
-  - Don't flag prose style. The rule is structural — which
-    kinds of citations and sections are present — not whether
-    the prose reads well.
-  - Don't flag a concept for missing content the rule doesn't
-    require.
-  - Don't grade severity. Every violation is in scope; pass
-    them all to the fixer.
+- <file 1>
+- <file 2>
+- ...
 ```
+
+The reviewer prompt itself is invariant — only the scope changes between focused (cycle 2) and full (`review-design`).
 
 ### After the compliance reviewer
 

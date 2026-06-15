@@ -24,6 +24,23 @@ Before claiming any status:
 | Build succeeds | Build output: exit 0 | Partial check |
 | Bug fixed / behavior works | The test was **red without the fix and green with it** — you ran both and saw the flip | A test that passed the first time it ran; it was never coupled to the change |
 | Spec / plan complete | **Every** user-outcome story's acceptance gate is green, each run against the real assembled product | Most stories green; "the headline scenario works"; the mechanism exists but the user-outcome was never observed |
+| Project's stories all have proofs | For every live `.ok-planner/design/stories/<slug>.md`, `rg -n '@story:\s*<slug>'` returns at least one match in the codebase (excluding `.ok-planner/`, build outputs, vendored deps). Zero matches → coverage gap. | A spec-driven proof walkthrough at the end of one execute-plan run (proves only the stories that spec touched, not the whole corpus) |
+
+## Proof coverage check
+
+If the project has design docs (`.ok-planner/design/stories/` exists), part of "am I done" is confirming every live story still has at least one proof artifact in the codebase. Run:
+
+```
+for f in .ok-planner/design/stories/*.md; do
+  slug=$(basename "$f" .md)
+  count=$(rg -c "@story:\s*$slug" --type-not md 2>/dev/null | wc -l)
+  [ "$count" -eq 0 ] && echo "GAP: $slug"
+done
+```
+
+Any `GAP:` line is a story without a proof artifact — either the proof was removed without authorization, was never created, or its `@story:<slug>` annotation drifted. Coverage gaps are blocking for any "complete" claim covering work that defined or touched stories.
+
+For deeper coverage analysis (intent-drift: a proof file no longer satisfies its story's `Proof:` field), invoke `/review-design` — it runs the full coverage + intent-drift audit. The bash check above is the cheap "am-I-done" gate; `/review-design` is the full sweep.
 
 ## A green test only counts if it was red first
 

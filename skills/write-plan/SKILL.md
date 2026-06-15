@@ -65,12 +65,43 @@ first-class plan task alongside the code work. Concept file mutations get
 explicit edit instructions (which file, which sections, what the new text
 is — written as the artifact's current state, with no dated audit-trail
 or "previously was X" lines; design docs are current-state only, see
-`ok-planner:discover-design`'s "Current-state-only rule"). Tension file moves
+the "Current-state-only rule" in
+`skills/_shared/artifact-definitions.md`). Tension file moves
 get explicit `mv` / `git mv` tasks with the destination path, status update,
 and resolution block. New concept or tension files get full-content task
 instructions. These design-doc edits are not optional follow-up — they
 ship in the same plan as the code that conforms to them, because the
 design docs and the code change as one unit.
+
+If the spec has a `## Proof changes` section, treat every entry as a
+first-class plan task on the proof artifact files. The verdict letter
+in the spec entry determines the task shape:
+
+- **A. Preserve the intent** — the proof artifact at the named path
+  is updated to keep satisfying the story's `Proof:` field. The plan
+  task names the artifact file and gives the implementer concrete
+  guidance on the update needed (e.g., "update the CLI invocation
+  from `foo` to `bar` to match TD-cli-grammar-revision; the assertion
+  set and the value-delivering component are unchanged"). The story
+  file is NOT mutated.
+- **B. Shift the intent** — the story's Proof field (and possibly
+  Acceptance/Falsifier) is being rewritten under `## Design changes`;
+  the proof artifact is being rewritten to exhibit the new outcome.
+  The plan generates TWO tasks: one mutating the story file per the
+  `## Design changes` entry, and one rewriting the proof artifact to
+  exhibit what the new Proof field describes. Both ride in the same
+  pass.
+- **C. Remove the story** — the story file is being deleted per a
+  `## Design changes` entry. The plan generates tasks to delete the
+  story file AND every `@story:<slug>`-annotated proof artifact for
+  that story (locate them via grep, list them all explicitly — do
+  not direct the implementer to "delete the proofs").
+
+Any plan task touching a `@story:<slug>`-annotated file MUST trace
+back to either an A/B/C entry in `## Proof changes` or an explicit
+ambient modification (e.g., a refactor task that incidentally touches
+a proof file's call site without changing what's exhibited). The plan
+reviewer flags off-spec touches.
 
 - A plan executes start to finish in one `execute-plan` run. No user-facing
   phases, stages, milestones, deliverables, or "phase 1 of N" framing. Passes
@@ -166,8 +197,10 @@ plan review flags it.
 ## Acceptance: every user-outcome story ships with a demo, example, or proof
 
 The spec's user-outcome stories are the contract. Each story
-carries `Acceptance:`, `Falsifier:`, and `Proof:` (from
-`brainstorm`'s story template). The plan turns each story into an
+carries `Acceptance:`, `Falsifier:`, and `Proof:` (the canonical
+story shape lives in `skills/_shared/artifact-definitions.md`;
+`brainstorm` applies it in spec-authoring context). The plan
+turns each story into an
 **acceptance pass** that delivers two things together: the
 integrating wiring that makes the story actually work, and a
 **proof artifact** that exhibits the story to a third party.
@@ -183,11 +216,21 @@ gate; the artifact and the validator together are the contract.
 
 **Story → acceptance pass mapping.**
 
-- A spec with N stories produces N acceptance passes (or fewer, if
-  multiple stories share a single assembled-product bring-up — but
-  every story still gets its own artifact and its own observable
-  assertion within that pass).
-- The acceptance pass is the **last pass for its story**. Earlier
+- Every story is served by an acceptance pass, but **stories share
+  acceptance passes by default**. Stories that share an
+  assembled-product bring-up (the same booted stack, the same
+  harness), touch adjacent surfaces, or exercise the same subsystem
+  belong in one pass — the bring-up and the context acquisition are
+  paid once for all of them. Give a story its own pass only when
+  batching would force the pass past its token budget (see
+  "Estimate implementation tokens") or pull genuinely unrelated
+  areas of the tree into one dispatch.
+- Within a shared pass, **every story still gets its own proof
+  task, its own artifact, and its own observable assertion** — and
+  the pass header lists every slug it serves
+  (`acceptance pass — STORY-a, STORY-b`). Batching is a delivery
+  optimization, never a coverage reduction.
+- The acceptance pass is the **last pass for its stories**. Earlier
   passes do the mechanism work; the acceptance pass does the
   integrating wiring and the artifact authoring.
 - Dropping a story's artifact, or merging stories so an outcome
@@ -226,10 +269,22 @@ acceptance pass contains:
     — a canned stub standing in for the thing the story exists
     to exercise defeats the entire pass
   - is committed alongside the wiring in the same pass
+  - **carries an `@story:<slug>` annotation** in a top-of-file
+    comment, in the structured-tag form the project uses (a
+    GoDoc-style comment line for Go, a JSDoc-style block for
+    TypeScript, a comment for other languages). The annotation
+    is the durable link from the proof artifact back to the
+    story it exhibits — `/review-design` and `/verify` audit
+    coverage by greppping for these annotations. A proof file
+    without the annotation is, for coverage purposes, not a
+    proof of any story. See `{{PROOF-PROTECTION-RULE}}` in
+    `skills/_shared/artifact-definitions.md`.
 
 The proof task's description quotes the story's `Proof:` line
 verbatim; its `Files:` names the artifact file(s) the implementer
-creates; it references the story by slug (`STORY-<slug>`).
+creates; it references the story by slug (`STORY-<slug>`); and
+it explicitly directs the implementer to include the
+`@story:<slug>` annotation in each artifact file.
 
 **Form-of-proof guidance.** The artifact form is chosen by the
 spec story, not the planner — write what the story asked for:
@@ -294,12 +349,21 @@ Map out files before defining tasks. Design units with clear boundaries. Each fi
 
 **Pass count guidance:**
 
-- Most plans are 1–3 passes.
-- Large plans run to many more — a dozen, two dozen, or beyond. There is no upper cap; pass count scales with the spec's scope, and a high count is never a signal to split the spec or write multiple plans.
-- Don't pad the count either: size passes by coherent units of work (see "Pass sizing"), never toward a target number, and don't fragment work into trivial passes just because the per-subagent context budget is generous.
-- A plan with 1 pass and 30+ tasks is asking one subagent to do too much — split *that pass* into more passes (not the plan into more plans).
+- Use as many passes as you need, but **batch ambitiously**. Implementers have ~1M-token contexts and comfortably absorb multiple stories, multiple subsystems' worth of reading, and several verification runs in one dispatch. Pass count scales with the spec's *estimated token cost* (see "Estimate implementation tokens"), not with its story or task count. In general, fewer passes that get more done with one context are preferred to many small passes.
+- There is no upper cap on pass count, and a high count is never a signal to split the spec or write multiple plans — but a high count IS a signal to check for under-batching. Every pass boundary costs a full context re-acquisition by a fresh implementer plus a fresh validator dispatch; two passes that read the same files, the same spec sections, or boot the same test stack are paying that overhead twice for no independence gain.
+- Don't pad the count: size passes by token budget and coherence, never toward a target number.
 
-**Pass sizing:** A pass should fit comfortably in one subagent's working context — typically a handful of tasks against a focused area of the codebase. If a pass enumerates 10+ tasks or scatters across unrelated areas of the tree, consider splitting it. If two adjacent passes touch the same handful of files in continuous order with no meaningful boundary between them, consider merging them.
+**Pass sizing:** Size each pass by its **estimated implementation tokens**, not its task count. Split only when a pass's estimate approaches the implementer's context ceiling (~1M tokens, leaving headroom for verification output). Merge passes that touch the same files, read the same context, or share a test-stack bring-up — shared context acquisition is the strongest merge signal.
+
+## Estimate implementation tokens (per pass)
+
+Pass boundaries are token decisions, so the planner must run the numbers. The estimates are a **planning artifact only**: use them to draw pass boundaries, then keep them out of the plan document — implementers and reviewers never see them. For each pass, estimate what the implementer will actually spend, in three buckets:
+
+- **Context acquisition** — the spec sections, plan section, concept docs, and source files the implementer must read before editing. Estimate from the real files (you read them while grounding the plan): file sizes, how much of the subsystem must be understood, whether the area is self-contained or tentacled.
+- **Verification output** — the dominant cost in test-heavy projects. A unit-test run is cheap; a testcontainers/integration suite that boots real infrastructure produces thousands of tokens per invocation, and a pass typically runs its suite 2–3 times (fail, fix, confirm). Count the runs the pass's steps prescribe.
+- **Edit volume** — usually the smallest bucket; estimate from the diff the tasks imply.
+
+Do **not** write the estimates into the plan — no `Est. tokens` line in pass headers, no total in the plan header. An implementer who sees a number anchors on it ("I've spent my budget, wrap up"), and a reviewer can't verify it anyway; the plan carries the *result* of the estimation (the pass boundaries), not the arithmetic. Estimates are coarse — order-of-magnitude honesty, not precision — but they force the batching question at planning time: a pass estimated at 60k sitting next to another 60k pass over the same files is one 90k pass (the shared context acquisition is paid once), and the plan should say so by merging them. Verification commands also follow the budget: per-pass verification covers the touched packages; the full repo-wide suite runs once at `execute-plan`'s final verification gate, not per pass — don't prescribe whole-tree runs inside every pass.
 
 **Every pass leaves the tree working.** Each pass must end with the
 codebase in a working state — the implementer of the next pass should
@@ -409,9 +473,10 @@ Notes on the shape:
 - The `Falsifier:` is the validator's contract. It names a concrete
   observation a reviewer could point at in the diff — not a generic
   "the feature doesn't work."
-- Acceptance passes annotate their header with the story slug they
-  serve (`acceptance pass — STORY-<slug>`) so the completion auditor
-  can pair them up.
+- Acceptance passes annotate their header with every story slug they
+  serve (`acceptance pass — STORY-<slug>`, or
+  `acceptance pass — STORY-a, STORY-b` for a shared pass) so the
+  completion auditor can pair stories to passes.
 - The proof task quotes the story's `Proof:` field from the spec and
   names the artifact file(s) it produces.
 - Do not include commit steps, "ask the user" steps, or manual-check
@@ -475,7 +540,7 @@ Agent (general-purpose):
     files). Design-doc edits ride alongside code edits in the
     same plan; missing tasks here are blocking.
   - Design-doc tasks respect the current-state-only rule (see
-    `ok-planner:discover-design`'s SKILL.md). Flag any task
+    `skills/_shared/artifact-definitions.md`). Flag any task
     that directs adding a `## Notes` / `## History` /
     `## Changelog` section to a concept, story, or decision; any
     task that directs appending a dated audit-trail entry
@@ -512,16 +577,18 @@ Agent (general-purpose):
     against, is blocking — `execute-plan`'s validator has nothing to
     judge against.
   - Acceptance pass authoring (blocking). If the spec states
-    user-outcome stories, the plan must include **one acceptance
-    pass per story** delivering both the integrating wiring AND a
+    user-outcome stories, every story must be served by an
+    acceptance pass delivering both the integrating wiring AND a
     proof artifact (demo / example / executable proof / all-of-the-
-    above) per the story's `Proof:` field. Check (1) coverage: every
-    story has its own acceptance pass with its own proof task; a
-    story with no acceptance pass, or whose artifact is merged into
-    another so its outcome is never exhibited, is blocking — that is
+    above) per the story's `Proof:` field. Stories share acceptance
+    passes by default (batching is correct, not a flag) — but check
+    (1) coverage: every story has its own proof task and its own
+    observable assertion within whatever pass serves it; a story
+    with no serving pass, or whose artifact is merged away so its
+    outcome is never exhibited, is blocking — that is
     how a promised capability ships unbuilt. Then, for each
-    acceptance pass: (a) the pass header annotates the story slug it
-    serves; (b) the proof task names the artifact file(s) the
+    acceptance pass: (a) the pass header annotates every story slug
+    it serves; (b) the proof task names the artifact file(s) the
     implementer creates and quotes the story's `Proof:` field; (c)
     the artifact's described form drives the **real assembled
     product** through the delivery surface the spec's TDs prescribe
@@ -535,9 +602,35 @@ Agent (general-purpose):
     outcome — including pieces the spec did not literally name
     (proto wiring, emit sites, registrations that do real work). A
     story whose closure is under-planned will fail the validator at
-    execution time. A spec with no user-outcome stories (pure
-    refactor / docs-only / no user-observable change) correctly has
-    no acceptance pass; do not flag its absence there.
+    execution time. Also check **`@story:<slug>` annotation
+    directive**: every proof task directs the implementer to include
+    an `@story:<slug>` annotation in a top-of-file comment in each
+    artifact file. A proof task missing this directive is blocking
+    — the artifact ships without the link, the coverage audit can't
+    find it. A spec with no user-outcome stories (pure refactor /
+    docs-only / no user-observable change) correctly has no
+    acceptance pass; do not flag its absence there.
+  - **Proof changes section handled (blocking).** If the spec has a
+    `## Proof changes` section, every entry must map to plan tasks:
+    - **A. Preserve** entries → a plan task updating the named
+      artifact file with concrete guidance (what changes, why the
+      intent is unchanged). Flag entries with no corresponding task.
+    - **B. Shift** entries → TWO plan tasks: one mutating the story
+      file per `## Design changes`, one rewriting the proof artifact.
+      Flag if either is missing.
+    - **C. Remove** entries → tasks deleting the story file AND every
+      `@story:<slug>`-annotated proof artifact for that story (the
+      plan must list each artifact file explicitly, located by grep
+      at plan time — not a directive like "delete the proofs"). Flag
+      if the proofs aren't enumerated.
+    Also flag **off-spec proof touches**: any plan task that modifies
+    a `@story:<slug>`-annotated file without either (i) a
+    corresponding A/B/C entry in `## Proof changes`, or (ii) an
+    explicit "ambient modification" note in the task explaining why
+    the touch does not change what's exhibited. Off-spec proof touches
+    are how proofs decay silently — the planner should have caught
+    them and pushed back to brainstorm, not threaded them into the
+    plan.
   - Task decomposition (one discrete action plus verification per
     step)
   - Buildability (the implementer can act on each task from the
@@ -557,18 +650,27 @@ Agent (general-purpose):
 
   - Every task lives under a numbered pass (no orphan tasks
     outside any pass).
-  - Pass count is appropriate to the plan: most plans are 1–3
-    passes; large plans run to many more (a dozen, two dozen, or
-    beyond). There is NO upper cap on pass count — it scales with
-    the spec's scope, and a high count is never grounds to flag the
-    plan as needing to split into multiple plans or to push the
-    spec back to be narrowed. Do flag the opposite problems: a
-    single pass with 30+ tasks (one subagent shouldn't be asked to
-    do that much — it wants splitting into more passes), and passes
-    fragmented so trivially that the count is padded.
-  - Each pass header declares **Goal**, **Scope** (task range), and
-    **Falsifier**. Acceptance passes additionally annotate the
-    story slug in the header (`acceptance pass — STORY-<slug>`).
+  - Pass count is appropriate to the plan: There is NO upper cap
+    on pass count — it scales with the spec's estimated token cost,
+    and a high count is never grounds to flag the plan as needing to
+    split into multiple plans or to push the spec back to be
+    narrowed. But **under-batching is a real flag**: every pass
+    boundary costs a fresh implementer's full context
+    re-acquisition plus a validator dispatch. Flag adjacent passes
+    that read the same files or spec sections, boot the same test
+    stack, or whose evident workload (files to read, edits to
+    make, verification runs) sits far below the 1M-token
+    context ceiling — they want merging. Also flag the opposite: a
+    pass whose evident workload approaches the implementer's ~1M
+    context ceiling wants splitting. Judge this from the pass's
+    content — the planner's token estimates are a planning
+    artifact and are deliberately not written into the plan, so
+    do NOT flag their absence.
+  - Each pass header declares **Goal**, **Scope** (task range),
+    and **Falsifier**. Acceptance passes additionally annotate
+    every story slug they serve in the header
+    (`acceptance pass — STORY-<slug>` or
+    `acceptance pass — STORY-a, STORY-b`).
   - Every pass leaves the tree in a working state — there is no
     `broken-intentional` end-state, and no "restored by Pass N"
     framing. Multi-pass work that conceptually requires teardown
@@ -577,9 +679,11 @@ Agent (general-purpose):
     or names a restorer pass — it is a blocking authoring error,
     not a supported pattern.
   - Adjacent passes that touch the same handful of files in
-    continuous order with no meaningful boundary — consider
-    merging. Passes that enumerate 10+ tasks or scatter across
-    unrelated areas — consider splitting.
+    continuous order with no meaningful boundary — merge them.
+    Passes that scatter across genuinely unrelated areas of the
+    tree — consider splitting. A high task count alone is not a
+    split signal when the tasks are mechanically related and the
+    pass's evident workload fits the budget.
 
   Flag any phase/stage/milestone framing aimed at the user (passes
   are internal chunks; "phase 1 of N" framing implies user
