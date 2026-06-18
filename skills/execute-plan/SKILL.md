@@ -576,7 +576,7 @@ Falsifier brief: ${p.falsifier}${storyContext}
 5b. **For any pass that modifies files under \`.ok-planner/design/\`**: audit each modified artifact body (\`design/concepts/<slug>.md\`, \`design/stories/<slug>.md\`, \`design/decisions/<slug>.md\`, \`design/tensions/<slug>.md\`) against the canonical artifact rules. The rules canonically live in \`skills/_shared/artifact-definitions.md\` — for the validator's purposes, the mechanically-checkable subset is:
 
   **SELF-CONTAINMENT-RULE** (concept/story/decision bodies — grep against the diff for):
-  - File or directory paths: \`\\b\\w+/\\w+\\.\\w+\\b\` (any \`foo/bar.ext\` form), \`\\bcode:\\`, \`\\bpkg:\\`, \`docs/\`, \`README\`, \`CHANGELOG\`, sibling-repo paths.
+  - File or directory paths: \`\\b\\w+/\\w+\\.\\w+\\b\` (any \`foo/bar.ext\` form), \`\\bcode:\`, \`\\bpkg:\`, \`docs/\`, \`README\`, \`CHANGELOG\`, sibling-repo paths.
   - Citation forms: \`code:foo.go::Symbol\`, \`pkg:github.com/...\`, bare URLs (\`https?://\`).
   - Quoted code blocks (triple-backtick) inside artifact bodies (the templates have them, but a written concept body should not).
   - \`## Owns\` / \`## Does NOT own\` section headers.
