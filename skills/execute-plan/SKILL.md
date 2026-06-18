@@ -28,7 +28,7 @@ Two agents per pass, with one adversarial loop between them:
 
 - **Implementer** — given the spec, the pass goal, the tasks, and
   the pass's `Falsifier:` brief, builds the work and reports
-  `DONE` / `BLOCKED` / `OFF_PATTERN`. The only role that wants the
+  `DONE` / `BLOCKED` / `INVALID_PLAN`. The only role that wants the
   pass to advance.
 - **Validator** — given the spec, the pass goal, the falsifier
   brief, and the diff, argues from spec intent that the pass does
@@ -37,18 +37,40 @@ Two agents per pass, with one adversarial loop between them:
   with concrete citation against the diff. Rejects with a specific
   critique the implementer can act on.
 
-A validator-rejected DONE re-dispatches the implementer with the
-validator's critique as input. Cap at **2 implementer attempts per
-pass**; on the second failure, escalate as `work-stuck`.
+A validator-rejected full-DONE re-dispatches the implementer with the
+validator's critique as input. **Cap at 2 validator rejections per
+pass**; a third escalates as `work-stuck`.
 
-A `BLOCKED` report triggers the **strategist** — one agent,
-invoked on the *first* BLOCKED (no waiting). The strategist
-combines what were previously the blocked-check skeptic and the
-fresh-perspective strategist into one role. It either confirms the
-BLOCKED is genuine (escalate as `blocked`) or supplies a
-root-cause read and a different approach (re-dispatch with new
-input). **One strategist intervention per pass**; a second BLOCKED
-report after a strategist intervention escalates as `work-stuck`.
+A **partial-DONE** report (status DONE but with some tasks marked
+not-done) re-dispatches a fresh implementer to pick up from the
+staged tree. There is **no fixed cap on partial dispatches** — the
+loop runs as long as each dispatch advances at least one task that
+wasn't already done. **Two consecutive zero-progress dispatches**
+(no new tasks marked done since the prior dispatch) escalate as
+`work-stuck`. The point is to size the unit of work to the
+implementer rather than to a guessed token budget: an implementer
+that finishes some of the pass and stops makes room for the next
+implementer to pick up the rest, indefinitely, until either the
+pass clears or progress genuinely stalls.
+
+A `BLOCKED` or `INVALID_PLAN` report triggers the **strategist** —
+one agent, invoked on the *first* halt-claim of either kind (no
+waiting). The strategist either confirms the halt is genuine
+(escalate as `blocked` for BLOCKED, `invalid-plan` for
+INVALID_PLAN — both carry the implementer's report and the
+strategist's concurring analysis for the user to read) or supplies
+a root-cause read and a different approach (re-dispatch with new
+input). **One strategist intervention per pass**, shared across
+both kinds; a second halt-claim of any kind after a strategist
+intervention escalates as `work-stuck`.
+
+The two halt lanes are deliberately narrow and parallel: BLOCKED is
+*the world is blocking me* (credentials/access only the user can
+provide, or an unauthorized destructive action); INVALID_PLAN is
+*the plan itself is broken* (literally impossible to implement, or
+unintelligible to the implementer). Neither lane accepts "I'd
+prefer a different shape," "needs discussion," or "the validator's
+critique was unfair" — those are not halts.
 
 Every role in the engine except the implementer is
 **disinterested** — none has a stake in advancing the pass.
@@ -70,7 +92,7 @@ deeper context for those passes.
 |---|---|
 | dispatch implementer; dispatch validator; loop on rejection | parse the plan → structured passes |
 | interim review-and-fix checkpoint every 3 cleared passes | escalation conversation (blocked, work-stuck, invalid-plan) |
-| strategist on first BLOCKED | |
+| strategist on first BLOCKED or INVALID_PLAN | |
 | final verification gate (build + test + lint per project docs) | the closing walk (proofs working + decisions kept + decisions diverged + coverage divergences) |
 | no-deferral audit as gate (loops with fixer until clean) | final review (`review-work` → `review-cleanup`) |
 | completion auditor (writes the four-section report, runs coverage + intent-drift audit) | archive |
@@ -118,16 +140,54 @@ in the script instead, as the engine's input guard notes.)
 3. **Affirm the layout.** Invoke `ok-planner:affirm`.
 
 4. **Run the engine as a workflow.** Call `Workflow` with the script
-   in "The workflow engine" below and:
+   in "The workflow engine" below — copy the entire fenced JS block
+   **verbatim** into the `script` parameter; do not paraphrase,
+   abbreviate, omit sections, or pre-Write it to a file (the
+   Workflow tool persists the script itself; you do not author the
+   file separately) — and:
    ```
    args = { passes: <the parsed pass array>,
             planPath: "<plan path>",
             specPath: "<spec path from the **Spec:** header, or 'none'>",
             priorCleared: 0 }   // raised on resume across an escalation
    ```
-   The workflow runs in the background; you are re-invoked when it
-   completes. Its return value is a result object — act on its
-   `status`.
+
+   **Self-heal launch errors. This is the most important discipline
+   of this skill.** The user runs `/execute-plan` and walks away
+   trusting the run to finish in their absence. If `Workflow`
+   returns an error **before the run starts** (script parse error,
+   meta validation error, args validation error), DO NOT stop, DO
+   NOT ask the user, and DO NOT abandon the invocation — they are
+   not at the keyboard. Diagnose the error, fix it, and re-invoke.
+   The common failure modes and their fixes:
+   - **`SyntaxError` / `ReferenceError` / `Unexpected token` in the
+     script** → you paraphrased, truncated, or otherwise altered the
+     canonical block when copying. Re-read this skill's "The workflow
+     engine" section in full and re-invoke Workflow with the entire
+     block pasted **verbatim** (resist the urge to "improve" it).
+   - **`meta must be a pure literal`** → the `export const meta`
+     block was altered (an interpolation, a spread, a computed
+     value). Re-paste it from the canonical block.
+   - **`args ... unparseable string` / `no passes to run`** → `args`
+     was passed as a string, or with a missing key. Reconstruct the
+     args object from your step-2 parse output (the array of
+     structured pass objects, plus `planPath`, `specPath`,
+     `priorCleared`).
+   Retry the launch up to **3 times**. Only after a 3rd consecutive
+   failure — at which point the issue is likely beyond the launch
+   path (a latent bug in the canonical block itself, or a
+   Workflow-tool issue) — surface every error verbatim to the user.
+   The escalations in step 5 are the only legitimate user-facing
+   pauses of this run; a launch error is not one of them.
+
+   **Wait for the workflow.** Once it launches, the runtime notifies
+   you when it returns — that notification arrives as a separate
+   message on a later turn, possibly hours later. Do NOT poll. Do
+   NOT call `Workflow` again "to check on it" — a second call
+   spawns a parallel run. Do NOT assume completion without the
+   notification. Sit quiet; the notification IS the wakeup. When it
+   arrives, the return value is a result object — act on its
+   `status` per step 5.
 
 5. **Handle the result.**
    - `status: "complete"` → the workflow cleared every pass, the
@@ -141,17 +201,31 @@ in the script instead, as the engine's input guard notes.)
        unauthorized destructive action). Give the user the bullet,
        the detail, the strategist's `humanAsk` if any, and the
        passes already cleared.
-     - `kind: "work-stuck"` — the implementer ↔ validator pair could
-       not converge on the pass after the cap, OR a second BLOCKED
-       came in after a strategist intervention. `lastFailure`
-       carries the validator's last critique or the strategist's
-       root-cause read and different approach already tried. Surface
+     - `kind: "work-stuck"` — one of the in-pass termination predicates
+       fired: two consecutive zero-progress implementer dispatches on
+       a partial-DONE loop, two validator rejections on a full-DONE
+       loop, two implementer dispatches in a row that returned no
+       useful report (null / malformed), a second halt-claim
+       (BLOCKED or INVALID_PLAN, in any combination) after a
+       strategist intervention, OR a post-pass gate (final
+       verification, no-deferral audit) could not clear. `lastFailure`
+       carries the relevant signal — the validator's last critique,
+       the strategist's different approach already tried, the
+       remaining-task list, or the failing gate's output. Surface
        with options: sharpen the brief and resume, rework the
        pass/plan, or abandon.
-     - `kind: "invalid-plan"` — the engine's defensive validation
-       found a pass missing its Falsifier brief, or an acceptance
-       pass missing its story slug annotation. Take it back to
-       `write-plan`.
+     - `kind: "invalid-plan"` — either (a) the engine's defensive
+       validation found a pass missing its Falsifier brief or an
+       acceptance pass missing its story slug annotation (`detail`
+       carries the structural issue), or (b) the implementer declared
+       the plan impossible to implement or unintelligible, and the
+       strategist concurred — `implementerReport` (`reason` =
+       `plan-impossible` or `plan-unintelligible`, plus a concrete
+       `detail` citing the offending passage) and `strategistReport`
+       (`concurringAnalysis` — the disinterested write-up of what
+       breaks and what alternatives were considered and rejected)
+       carry the full reasoning. Surface both reports verbatim, then
+       take it back to `write-plan`.
 
      When the user resolves a `blocked` or `work-stuck`, **resume**
      by re-invoking the workflow (step 4) with `args.passes` set to
@@ -189,8 +263,9 @@ in the script instead, as the engine's input guard notes.)
      + intent-drift audit: coverage gaps (stories with no
      `@story:<slug>` annotation in the codebase), intent drifts
      (proof files no longer satisfying their story's Proof field),
-     and dangling annotations (`@story:<slug>` annotations pointing
-     at retired or missing stories). For each finding, the user
+     and dangling annotations (`@concept:<slug>` / `@story:<slug>`
+     / `@decision:<slug>` annotations pointing at retired, missing,
+     or kind-mismatched artifacts). For each finding, the user
      adjudicates: accept as informational, course-correct now (open
      a brainstorm to address), or bounce back to the implementer
      (process defect). Ideally this section is empty — the
@@ -225,7 +300,7 @@ loop; the validator is the judge of whether the pass delivered.
 ```javascript
 export const meta = {
   name: 'execute-plan-engine',
-  description: 'Opposing implementer ↔ validator pair per pass, with a strategist on BLOCKED. Loops on validator rejection; caps at 2 implementer attempts; escalates on exhaustion. Every 3 cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work. After all passes clear, the final verification gate runs the project\'s build + test + lint suite; the no-deferral audit + completion auditor follow.',
+  description: 'Opposing implementer ↔ validator pair per pass, with a strategist on BLOCKED or INVALID_PLAN. Partial-DONE dispatches loop on forward progress (no fixed cap; two consecutive zero-progress dispatches escalate); validator rejections cap at 2. Every 3 cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work. After all passes clear, the final verification gate runs the project\'s build + test + lint suite; the no-deferral audit + completion auditor follow.',
   phases: [
     { title: 'Execute', detail: 'implementer ↔ validator per pass; interim review every 3 cleared passes' },
     { title: 'Verify', detail: 'final build + test + lint gate against the staged tree' },
@@ -265,7 +340,7 @@ const REPORT_SCHEMA = {
   type: 'object',
   required: ['status', 'tasks'],
   properties: {
-    status: { enum: ['DONE', 'BLOCKED', 'OFF_PATTERN'] },
+    status: { enum: ['DONE', 'BLOCKED', 'INVALID_PLAN'] },
     tasks: {
       type: 'array',
       items: {
@@ -278,8 +353,13 @@ const REPORT_SCHEMA = {
         },
       },
     },
+    // BLOCKED: external block (credentials/destruction). Bullet 1 or 2 + detail.
     blockedBullet: { enum: [1, 2] },
     blockedDetail: { type: 'string' },
+    // INVALID_PLAN: plan-side break. Reason + concrete detail citing the
+    // offending passage and the specific contradiction or ambiguity.
+    invalidPlanReason: { enum: ['plan-impossible', 'plan-unintelligible'] },
+    invalidPlanDetail: { type: 'string' },
   },
 }
 
@@ -297,9 +377,12 @@ const VALIDATOR_SCHEMA = {
   },
 }
 
-// One agent on BLOCKED, replacing the previous blocked-check skeptic + the
-// strategist. Confirms or rejects the BLOCKED; if rejected, supplies a
-// different approach.
+// One agent on BLOCKED or INVALID_PLAN. Confirms or rejects the halt-claim;
+// if rejected, supplies a different approach. If confirmed:
+//   - BLOCKED → humanAsk names what the user must provide.
+//   - INVALID_PLAN → concurringAnalysis is the disinterested write-up the
+//     user reads when adjudicating the escalation (what specifically breaks,
+//     what alternative readings/workarounds were considered, why each fails).
 const STRATEGIST_SCHEMA = {
   type: 'object',
   required: ['genuine'],
@@ -308,6 +391,7 @@ const STRATEGIST_SCHEMA = {
     rootCause: { type: 'string' },
     approach: { type: 'string' },
     humanAsk: { type: 'string' },
+    concurringAnalysis: { type: 'string' },
   },
 }
 
@@ -428,13 +512,35 @@ ${(p.tasks || []).map(t => `### Task ${t.number}\n${t.text}`).join('\n\n')}
 - Checkpoint after every task with \`git add -A\` (staging, not committing). NEVER revert/reset/stash/clean the tree, even one file — fix forward by editing. Do NOT commit.
 
 ## Design-doc mutations (if any task here touches them)
-If a task mutates a file under \`.ok-planner/design/concepts/\`, \`design/stories/\`, \`design/decisions/\`, or \`design/tensions/\`, keep the body self-contained AND current-state only: no file paths, no \`code:\`/\`pkg:\` citations, no external-doc references (\`docs/...\`, READMEs, sibling-repo paths), no quoted code or lint allowlists, no "Owns / Does NOT own" sections naming code paths, no \`## Notes\` / \`## History\` / \`## Changelog\` section, no dated audit-trail entries, no "previously called X" / "used to be Y" / "changed per spec Z" lines, no forward-looking "TODO" / "deferred" / "will be replaced" content. Allowed citations: other artifact slugs (concept / story / decision) and annotation IDs (\`@blessed-invariant: N\`, \`@story:\`, \`@decision:\`). Rewrite each affected section to describe the artifact as it now stands; git carries the lineage. If a task's wording leaks a path, an audit-trail line, or any backward/forward-looking framing, rewrite it as you implement — that counts as a divergence the completion auditor will record.
+If a task mutates a file under \`.ok-planner/design/concepts/\`, \`design/stories/\`, \`design/decisions/\`, or \`design/tensions/\`, keep the body self-contained AND current-state only: no file paths, no \`code:\`/\`pkg:\` citations, no external-doc references (\`docs/...\`, READMEs, sibling-repo paths), no quoted code or lint allowlists, no "Owns / Does NOT own" sections naming code paths, no \`## Notes\` / \`## History\` / \`## Changelog\` section, no dated audit-trail entries, no "previously called X" / "used to be Y" / "changed per spec Z" lines, no forward-looking "TODO" / "deferred" / "will be replaced" content. Allowed citations: other artifact slugs (concept / story / decision) and invariant IDs under whatever numbering convention the codebase uses. Rewrite each affected section to describe the artifact as it now stands; git carries the lineage. If a task's wording leaks a path, an audit-trail line, or any backward/forward-looking framing, rewrite it as you implement — that counts as a divergence the completion auditor will record.
 
-## BLOCKED — the only two reasons to stop short
-1. Credentials/access only the user can provide. 2. An unauthorized destructive/irreversible action. Anything else ("needs discussion", "the plan was wrong", "more coupled than expected", "I'd like approval") is NOT blocked — make the call from spec intent and deliver. A review critique you disagree with is NOT a block either — address it and deliver.
+## The only two halt lanes — both narrow, both go to a skeptical strategist
+
+The default is **deliver**. Halt only if one of these two situations literally and concretely applies. The strategist sees every halt-claim first and defaults to rejecting it; a halt-claim that doesn't survive the strategist costs you an implementer attempt and gets a different approach you must then deliver.
+
+### BLOCKED — the world is blocking you
+Only these two reasons:
+1. Credentials, secrets, or access only the user can provide, with no workaround.
+2. An unauthorized destructive or irreversible action the plan does not authorize.
+
+Cite the specific resource or action. Anything else ("needs discussion", "I'd like approval", "a validator critique I disagree with") is NOT BLOCKED — deliver.
+
+### INVALID_PLAN — the plan itself is broken
+Only these two reasons:
+1. \`plan-impossible\` — the plan as written is **literally impossible** to implement: a contradiction with the spec, with the codebase as it actually exists, or within the plan itself. Cite the exact passage and the specific contradiction.
+2. \`plan-unintelligible\` — a passage of the plan admits **multiple incompatible readings** and you cannot pick one from spec intent. Cite the exact passage, name the readings, and show why spec intent does not disambiguate.
+
+NEITHER reason qualifies on: "I'd prefer a different shape", "the tasks feel awkward", "more coupled than I expected", "I don't know how I'd do this" (without having tried), "the validator's critique was unfair." Those are not halts — make the call from spec intent and deliver.
+
+The strategist will read the passage you cite, read the spec, and try to find a workable reading the necessity rule supports. If they find one, you get a different approach to try; declaring INVALID_PLAN without a concrete citation is the surest way to burn the attempt.
 
 ## Your return value (structured)
-Return the report object: status DONE when every task is done and the work fully satisfies the pass's Falsifier brief; BLOCKED with the bullet + detail only if one genuinely applies; OFF_PATTERN if you could not deliver and it is not a valid BLOCKED. List each task's number and done-state.`
+Return the report object. Status is one of:
+- **DONE** — every task is done and the work fully satisfies the pass's Falsifier brief.
+- **BLOCKED** — set \`blockedBullet\` (1 or 2) and \`blockedDetail\` (concrete: which resource, which action) per the BLOCKED lane above.
+- **INVALID_PLAN** — set \`invalidPlanReason\` (\`plan-impossible\` or \`plan-unintelligible\`) and \`invalidPlanDetail\` (cite the exact passage and explain the contradiction or ambiguity) per the INVALID_PLAN lane above.
+
+Always list each task's number and done-state.`
 }
 
 function validatorPrompt(p) {
@@ -491,6 +597,16 @@ Falsifier brief: ${p.falsifier}${storyContext}
 
   This check runs at validator time precisely so drift does not accumulate until cycle 2 / \`/review-design\` has to clean it up — by then there may be dozens of edits in the diff and the originating context is gone. Catching at pass close means same-turn fix with full implementer context.
 
+5c. **For any pass that adds \`@concept:<slug>\` / \`@story:<slug>\` / \`@decision:<slug>\` annotations to code**: verify each newly-added annotation's slug resolves to a live artifact at the corresponding path. Grep the diff for added lines matching \`@(concept|story|decision):\s*([a-z0-9-]+)\`. For each (kind, slug) pair:
+
+  - Check \`.ok-planner/design/<kind>s/<slug>.md\` exists. If yes, integrity holds.
+  - If no, check whether \`<slug>.md\` exists under *any* of the three design directories. If it does, the annotation is **kind-mismatched** — the slug is real but the prefix is wrong. Critique with the correct kind.
+  - If \`<slug>.md\` exists under no kind, the annotation is **dangling** — the slug doesn't correspond to any design artifact. Critique with the unresolved slug; the implementer either paraphrased a real slug or cited an artifact that does not exist.
+
+  The slug stamped into code MUST be the canonical artifact filename, byte-for-byte. Paraphrasing (e.g. annotating \`@concept: dispatch-deadlines\` against a real artifact \`decisions/three-dispatch-deadlines.md\`) is dangling, not a different valid form. The canonical artifact rules live in \`skills/_shared/artifact-definitions.md\` under {{ANNOTATION-INTEGRITY-RULE}}.
+
+  Any violation found is pass-blocking — the implementer used the wrong prefix or paraphrased the slug. The fix is to rewrite the annotation to the canonical (kind, slug) pair. Surface each as a critique line: file:line + kind-mismatch or dangling + the offending annotation + (for kind-mismatch) the correct kind.
+
 6. **Check the Falsifier brief.** Does the absence the Falsifier names hold against the diff? If you can point at the code and show the absence is real, the pass does NOT deliver.
 
 ## Adversarial defaults
@@ -508,8 +624,19 @@ Return the verdict object:
 `
 }
 
-function strategistPrompt(p, report) {
+function strategistContext(p) {
   const hasSpec = specPath && specPath !== 'none'
+  return `## Plan
+Path: ${planPath}
+## Spec
+${hasSpec ? 'Path: ' + specPath : 'No separate spec file.'}
+
+## This pass
+Goal: ${p.goal}
+Falsifier: ${p.falsifier}`
+}
+
+function strategistBlockedPrompt(p, report) {
   return `An implementer reported BLOCKED on Pass ${p.number} — ${p.name}. You are the strategist: decide, skeptically, whether the BLOCKED is genuine, and — if not — supply a different approach the next implementer should try. Default to NOT genuine.
 
 ## The two valid BLOCKED conditions
@@ -519,16 +646,10 @@ function strategistPrompt(p, report) {
 Anything else — "needs discussion," "the plan was wrong about X," "more coupled than expected," "I'd like approval," "a validator critique I disagree with" — does NOT qualify. Default to genuine: false.
 
 ## The implementer's report
-${report.status === 'BLOCKED' ? `Bullet cited: ${report.blockedBullet || '(none given)'}\nDetail: "${report.blockedDetail || ''}"` : `Status was ${report.status} but you're being run anyway — treat this as a non-genuine block and propose a different approach.`}
+Bullet cited: ${report.blockedBullet || '(none given)'}
+Detail: "${report.blockedDetail || ''}"
 
-## Plan
-Path: ${planPath}
-## Spec
-${hasSpec ? 'Path: ' + specPath : 'No separate spec file.'}
-
-## This pass
-Goal: ${p.goal}
-Falsifier: ${p.falsifier}
+${strategistContext(p)}
 
 ## What you do
 Read the pass, the spec, and the CURRENT working tree (the prior implementer's staged work is there).
@@ -541,6 +662,35 @@ Read the pass, the spec, and the CURRENT working tree (the prior implementer's s
 - rootCause: one-line read of why the prior attempt stalled (when not genuine)
 - approach: the different approach to try (when not genuine)
 - humanAsk: the specific user input needed (when genuine)
+`
+}
+
+function strategistInvalidPlanPrompt(p, report) {
+  return `An implementer reported INVALID_PLAN on Pass ${p.number} — ${p.name}. You are the strategist: decide, skeptically, whether the plan as written is **genuinely** impossible to implement or unintelligible — or whether a different reading or approach makes it workable. Default to NOT genuine. Implementers under load are tempted to find ambiguity where careful reading would resolve it; your job is to read carefully.
+
+## The two valid INVALID_PLAN conditions
+1. \`plan-impossible\` — the plan, as written, is **literally impossible** to implement: a contradiction with the spec, with the codebase as it exists, or within the plan itself.
+2. \`plan-unintelligible\` — a passage of the plan admits **multiple incompatible readings** and spec intent does not disambiguate among them.
+
+Anything else — "I'd prefer a different shape," "the tasks are awkward," "more coupled than expected," "I don't know how I'd do this," "a validator critique I disagree with" — does NOT qualify.
+
+## The implementer's report
+Reason cited: ${report.invalidPlanReason || '(none given)'}
+Detail: "${report.invalidPlanDetail || ''}"
+
+${strategistContext(p)}
+
+## What you do
+Read the passage of the plan the implementer cited, in its full context. Read the spec sections it depends on. Inspect the codebase where the implementer points (the prior implementer's staged work is in the tree if any landed). Actively try to find a workable reading — the necessity rule, the spec's intent, an interpretation the implementer missed, a sequencing or scoping fix that resolves the contradiction.
+
+- If, after that search, the contradiction or ambiguity genuinely holds: set genuine: true. Write \`concurringAnalysis\` as a thorough, disinterested write-up — name the specific contradiction or ambiguity from outside the implementer's head, list every alternative reading or workaround you considered, and explain why each fails. **This is the report the user reads when adjudicating the escalation**; it must give them enough to decide whether to rewrite the pass, rework the plan, or change the spec.
+- Otherwise, set genuine: false. Diagnose the \`rootCause\` — what the implementer read into the plan that isn't there, or what they missed. Prescribe a concrete, DIFFERENT \`approach\` — the reading you found that makes the plan workable, specific enough that the next implementer can execute it.
+
+## Your return value
+- genuine: bool (default false unless one of the two conditions plainly holds against your reading)
+- rootCause: one-line read of why the prior attempt declared invalid (when not genuine)
+- approach: the different reading / approach to try (when not genuine)
+- concurringAnalysis: the thorough disinterested write-up (when genuine) — the user reads this
 `
 }
 
@@ -699,7 +849,12 @@ Before writing the report, run the **closing coverage + intent-drift audit**:
 
 **Intent-drift check (spec-scoped, judgment).** For every story the spec touched (mutated under \`## Design changes\` or named in \`## Proof changes\`) AND every \`@story:<slug>\`-annotated file modified in the diff: read the proof file and read the story's current \`Proof:\` field. Judge whether the proof still satisfies the story's Proof field. Verdict per artifact: **satisfies** / **does not satisfy** / **uncertain**. Cite file:line for any "does not satisfy" or "uncertain" verdict — name what the Proof field requires that the artifact does not exhibit.
 
-**Annotation integrity (cheap).** \`rg -n '@story:\\s*\\S+'\` across the codebase. For every annotation, confirm the slug resolves to a live \`stories/<slug>.md\` file. Annotations pointing at retired or missing story slugs are dangling — record them.
+**Annotation integrity (cheap).** \`rg -n '@(concept|story|decision):\\s*\\S+'\` across the codebase. For each match, parse out (kind, slug) and confirm \`.ok-planner/design/<kind>s/<slug>.md\` exists. Two failure modes per {{ANNOTATION-INTEGRITY-RULE}} in \`skills/_shared/artifact-definitions.md\`:
+
+- **Dangling** — the slug does not exist under any of the three design directories.
+- **Kind-mismatch** — the slug exists, but at a different kind than the annotation claims (e.g. \`@concept:foo\` but only \`stories/foo.md\` exists). Record the correct kind in the finding.
+
+The integrity rule is symmetric across the three kinds: paraphrased slugs are dangling, wrong-prefix tags are kind-mismatched. Record every failure.
 
 Findings from these three checks land in section 4 of the report.
 
@@ -733,7 +888,7 @@ For every finding from the closing coverage + intent-drift audit. Each entry is 
 
 - **Coverage gap** — a live story with zero \`@story:<slug>\` annotations in the codebase. Name the story slug; note whether the spec touched the story (if so, the validator should have caught this — process defect); name what's needed to resolve (restore a proof artifact, or open a brainstorm to deprecate the story).
 - **Intent drift** — a \`@story:<slug>\`-annotated proof file whose content no longer satisfies the story's \`Proof:\` field. Quote the relevant excerpt from the story's Proof field; quote what the proof actually exhibits; name file:line. Note whether the spec had a \`## Proof changes\` entry for this story (if so and the entry was "A. Preserve" but the proof drifted, that's a process defect — the validator should have caught it).
-- **Dangling annotation** — an \`@story:<slug>\` annotation pointing at a slug that doesn't resolve to a live story file. Name the annotation site and the unresolved slug. Note whether the spec removed the story (if so, the implementer should have removed all annotations too — process defect).
+- **Dangling annotation** — an \`@concept:<slug>\` / \`@story:<slug>\` / \`@decision:<slug>\` annotation whose slug doesn't resolve to a live artifact at the corresponding path. Name the annotation site and the unresolved (kind, slug) pair. Note whether the spec removed the artifact (if so, the implementer should have removed all annotations too — process defect). Sub-flavors: **slug-dangling** (no artifact at any kind — author paraphrased or cited a missing artifact) and **kind-mismatch** (an artifact at the slug exists but at a different kind; name the correct kind — author used the wrong tag prefix).
 
 Each entry includes a brief recommendation: **accept as informational** (the divergence is known and intentional, just record it), **course-correct now** (open a brainstorm to address — e.g., restore the proof, deprecate the story, rewrite the annotation), or **bounce back to the implementer** (a process defect the implementer should fix before close).
 
@@ -773,84 +928,146 @@ for (let i = 0; i < passes.length; i++) {
   const p = passes[i]
   let priorFailure = null
   let strategistRan = false
-  let passCleared = false
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Forward-progress predicate (replaces the old fixed implementer-attempt
+  // cap on the partial-DONE path). A dispatch advances the pass iff it
+  // marks at least one task done that wasn't already done in the prior
+  // dispatch's report. Two consecutive zero-progress dispatches → escalate.
+  // A dispatch that returned no result (null) or a malformed status counts
+  // as zero-progress.
+  let priorDoneSet = new Set()
+  let zeroProgressDispatches = 0
+
+  // Validator-rejection retries stay capped: validator-rejection means the
+  // work is claimed done but wrong, a different signal from partial. Two
+  // full-DONE → validator-reject cycles per pass escalates work-stuck.
+  let validatorRejections = 0
+
+  let dispatch = 0
+
+  while (true) {
+    dispatch++
     const report = await agent(implementerPrompt(p, i, passes.length, priorFailure), {
-      label: `pass-${p.number}:impl#${attempt}`, phase: 'Execute', schema: REPORT_SCHEMA,
+      label: `pass-${p.number}:impl#${dispatch}`, phase: 'Execute', schema: REPORT_SCHEMA,
     })
 
     if (!report) {
       priorFailure = 'Prior dispatch was skipped before returning a report; re-dispatching.'
-      log(`pass ${p.number}: dispatch skipped on attempt ${attempt}, re-dispatching`)
+      zeroProgressDispatches++
+      log(`pass ${p.number}: dispatch ${dispatch} skipped (zero-progress ${zeroProgressDispatches}/2)`)
+      if (zeroProgressDispatches >= 2) {
+        return { status: 'escalate', kind: 'work-stuck', pass: p.number,
+                 lastFailure: 'Two consecutive implementer dispatches returned no result. New input from you is needed.',
+                 cleared }
+      }
       continue
     }
 
-    if (report.status === 'BLOCKED') {
-      // First BLOCKED in this pass → strategist. Second BLOCKED after a
+    if (report.status === 'BLOCKED' || report.status === 'INVALID_PLAN') {
+      // First halt-claim of either kind in this pass → strategist. A second
+      // halt-claim (BLOCKED or INVALID_PLAN, in any combination) after a
       // strategist intervention → escalate as work-stuck (the strategist's
       // different approach didn't unstick the implementer).
       if (strategistRan) {
         return { status: 'escalate', kind: 'work-stuck', pass: p.number,
-                 lastFailure: priorFailure || 'Repeated BLOCKED after the strategist intervened with a different approach. The implementer is genuinely stuck.',
+                 lastFailure: priorFailure || `Repeated halt-claim (${report.status}) after the strategist intervened with a different approach. The implementer is genuinely stuck.`,
                  cleared }
       }
-      const strat = await agent(strategistPrompt(p, report), {
-        label: `pass-${p.number}:strategist`, phase: 'Execute', schema: STRATEGIST_SCHEMA,
-      })
+      const isBlocked = report.status === 'BLOCKED'
+      const strat = await agent(
+        isBlocked ? strategistBlockedPrompt(p, report) : strategistInvalidPlanPrompt(p, report),
+        { label: `pass-${p.number}:strategist`, phase: 'Execute', schema: STRATEGIST_SCHEMA },
+      )
       strategistRan = true
       if (!strat || strat.genuine) {
-        return { status: 'escalate', kind: 'blocked', pass: p.number,
-                 bullet: report.blockedBullet, detail: report.blockedDetail || '',
-                 humanAsk: (strat && strat.humanAsk) || '',
+        if (isBlocked) {
+          return { status: 'escalate', kind: 'blocked', pass: p.number,
+                   bullet: report.blockedBullet, detail: report.blockedDetail || '',
+                   humanAsk: (strat && strat.humanAsk) || '',
+                   cleared }
+        }
+        return { status: 'escalate', kind: 'invalid-plan', pass: p.number,
+                 implementerReport: {
+                   reason: report.invalidPlanReason || '(none given)',
+                   detail: report.invalidPlanDetail || '',
+                 },
+                 strategistReport: {
+                   concurringAnalysis: (strat && strat.concurringAnalysis) || '',
+                 },
                  cleared }
       }
-      priorFailure = `You reported BLOCKED, but the strategist judged it not genuine. Root cause the prior attempt missed: ${strat.rootCause || '(unstated)'}\n\nTake this DIFFERENT approach: ${strat.approach || '(unstated)'}\n\nDeliver the pass.`
-      log(`pass ${p.number}: BLOCKED → strategist intervened with different approach`)
-      // Strategist intervention is a routing fix, not an implementer attempt — give the
-      // new framing one full dispatch by canceling this iteration's counter advance.
-      // (Without this, a BLOCKED arriving on the final attempt would exit the loop
-      // before the strategist's approach could be tried.)
-      attempt--
+      priorFailure = isBlocked
+        ? `You reported BLOCKED, but the strategist judged it not genuine. Root cause the prior attempt missed: ${strat.rootCause || '(unstated)'}\n\nTake this DIFFERENT approach: ${strat.approach || '(unstated)'}\n\nDeliver the pass.`
+        : `You reported INVALID_PLAN, but the strategist judged the plan workable. Root cause the prior attempt missed: ${strat.rootCause || '(unstated)'}\n\nTake this DIFFERENT reading / approach: ${strat.approach || '(unstated)'}\n\nDeliver the pass.`
+      log(`pass ${p.number}: ${report.status} → strategist intervened with different approach`)
+      // The strategist's framing gets a fresh dispatch — no counter to adjust.
       continue
     }
 
     if (report.status !== 'DONE') {
-      priorFailure = `Prior dispatch returned ${report.status} — not a clean DONE and not a valid BLOCKED. Deliver the pass.`
-      log(`pass ${p.number}: off-pattern on attempt ${attempt}, re-dispatching`)
+      // The schema enum guarantees DONE / BLOCKED / INVALID_PLAN, all of which
+      // are handled above. This branch is defensive against a schema-bypass —
+      // treat it as zero-progress.
+      priorFailure = `Prior dispatch returned malformed status ${report.status}. Return DONE, BLOCKED, or INVALID_PLAN per the report schema.`
+      zeroProgressDispatches++
+      log(`pass ${p.number}: dispatch ${dispatch} malformed status (zero-progress ${zeroProgressDispatches}/2)`)
+      if (zeroProgressDispatches >= 2) {
+        return { status: 'escalate', kind: 'work-stuck', pass: p.number,
+                 lastFailure: priorFailure,
+                 cleared }
+      }
       continue
     }
 
-    // DONE claimed → confirm every task in the pass is marked done.
-    const doneNumbers = new Set((report.tasks || []).filter(t => t.done).map(t => Number(t.number)))
-    const missing = (p.tasks || []).filter(t => !doneNumbers.has(Number(t.number))).map(t => t.number)
+    // Status DONE — measure forward progress, then either keep going on a
+    // partial dispatch or hand off to the validator on a full-task dispatch.
+    const currentDoneSet = new Set((report.tasks || []).filter(t => t.done).map(t => Number(t.number)))
+    const newlyDone = [...currentDoneSet].filter(n => !priorDoneSet.has(n))
+    const missing = (p.tasks || []).filter(t => !currentDoneSet.has(Number(t.number))).map(t => t.number)
+    priorDoneSet = currentDoneSet
+
     if (missing.length) {
-      priorFailure = `Report claimed DONE, but task(s) ${missing.join(', ')} are not marked done in the per-task list. Every task in the pass must be delivered.`
-      log(`pass ${p.number}: DONE claimed with undone task(s) ${missing.join(', ')}, re-dispatching`)
+      // Partial-DONE. Keep dispatching fresh implementers as long as each
+      // makes forward progress; the staged tree carries prior work across
+      // dispatches.
+      if (newlyDone.length > 0) {
+        zeroProgressDispatches = 0
+        log(`pass ${p.number}: dispatch ${dispatch} advanced ${newlyDone.length} task(s) (${newlyDone.join(', ')}); ${missing.length} remaining`)
+      } else {
+        zeroProgressDispatches++
+        log(`pass ${p.number}: dispatch ${dispatch} no new task(s) done (zero-progress ${zeroProgressDispatches}/2); ${missing.length} remaining`)
+        if (zeroProgressDispatches >= 2) {
+          return { status: 'escalate', kind: 'work-stuck', pass: p.number,
+                   lastFailure: `Two consecutive implementer dispatches advanced no tasks on this pass. Remaining tasks: ${missing.join(', ')}. The pass may be too coupled to deliver incrementally, or the implementer is stuck on a specific task — new input from you is needed.`,
+                   cleared }
+        }
+      }
+      priorFailure = `Tasks ${missing.join(', ')} remain unfinished. The prior dispatch(es)' staged work is in the tree — read the tree first and pick up from where the last implementer stopped. Do NOT redo a task whose work already landed (a non-idempotent edit applied twice corrupts the tree). Deliver the remaining tasks.`
       continue
     }
 
-    // Validator — the adversarial judge.
+    // Full-DONE — every task marked done. Real work happened, so the stall
+    // counter resets; validator judges.
+    zeroProgressDispatches = 0
     const verdict = await agent(validatorPrompt(p), {
-      label: `pass-${p.number}:validator#${attempt}`, phase: 'Execute', schema: VALIDATOR_SCHEMA,
+      label: `pass-${p.number}:validator#${dispatch}`, phase: 'Execute', schema: VALIDATOR_SCHEMA,
     })
 
     if (verdict && verdict.verdict === 'delivers') {
-      passCleared = true
-      log(`pass ${p.number}: validator confirmed delivery`)
+      log(`pass ${p.number}: validator confirmed delivery (after ${dispatch} dispatch(es))`)
       break
     }
 
+    validatorRejections++
+    log(`pass ${p.number}: validator rejected on dispatch ${dispatch} (validator-rejections ${validatorRejections}/2)`)
+    if (validatorRejections >= 2) {
+      return { status: 'escalate', kind: 'work-stuck', pass: p.number,
+               lastFailure: `Validator rejected the pass on two full-DONE attempts. Last critique:\n\n${(verdict && verdict.critique) || '(no critique returned)'}\n\nEvidence cited:\n${(verdict && verdict.evidence) || '(none)'}\n\nFalsifier brief: ${p.falsifier}`,
+               cleared }
+    }
     priorFailure = `Your DONE was reviewed and rejected. The pass does NOT deliver because:\n\n${(verdict && verdict.critique) || '(no critique returned)'}\n\nEvidence cited:\n${(verdict && verdict.evidence) || '(none)'}\n\nThe pass's Falsifier brief is: ${p.falsifier}\n\nAddress the critique and re-deliver.`
-    log(`pass ${p.number}: validator rejected on attempt ${attempt}, re-dispatching`)
   }
 
-  if (!passCleared) {
-    return { status: 'escalate', kind: 'work-stuck', pass: p.number,
-             lastFailure: priorFailure,
-             note: 'Two implementer attempts (with validator critiques between) could not deliver this pass. New input from you is needed; lastFailure carries the validator\'s most recent critique or the strategist\'s different approach that was tried and still failed.',
-             cleared }
-  }
   cleared.push(p.number)
   log(`pass ${p.number} cleared (${cleared.length}/${passes.length})`)
 
@@ -958,10 +1175,13 @@ return { status: 'complete',
   the diff. Hollow proofs (shape checks, registration assertions,
   canned stubs at the value-delivering component) are the canonical
   failure mode the validator catches.
-- **One strategist intervention per pass** on BLOCKED. The
-  strategist either confirms the BLOCKED (escalate) or supplies a
-  root-cause read and a different approach (re-dispatch). A second
-  BLOCKED after a strategist intervention escalates as
+- **One strategist intervention per pass**, shared across BLOCKED
+  and INVALID_PLAN. The strategist either confirms the halt
+  (escalate as `blocked` for BLOCKED, `invalid-plan` for
+  INVALID_PLAN — both escalations carry the implementer's report
+  and the strategist's analysis) or supplies a root-cause read and
+  a different approach (re-dispatch). A second halt-claim of
+  either kind after a strategist intervention escalates as
   `work-stuck`.
 - **Interim review checkpoint every 3 cleared passes** (counted
   across resumes). A holistic reviewer sweeps the accumulated
@@ -975,10 +1195,22 @@ return { status: 'complete',
   skipped after the final pass (the final review follows
   immediately; a pass count not divisible by 3 needs no special
   handling for the same reason).
+- **Two termination predicates per pass, not a fixed attempt cap.**
+  Partial-DONE dispatches loop on **forward progress**: a fresh
+  implementer is dispatched as long as the prior one marked at
+  least one new task done; two consecutive zero-progress dispatches
+  escalate `work-stuck`. Validator-rejected full-DONE dispatches
+  loop on a separate **rejection cap of 2** (the work was claimed
+  done but wrong, a different signal from partial-progress).
+  Together they let an implementer that can't fit the whole pass
+  in one context hand off to a fresh one without artificial
+  cap-driven escalation, while still catching genuine stalls and
+  wrong-but-confident DONEs.
 - **No bare repeats.** A re-dispatch always carries new input — the
-  validator's critique on attempt 2, the strategist's different
-  approach on a BLOCKED retry. Raising the cap without adding
-  perspective is not a fix.
+  validator's critique on a rejection, the strategist's different
+  approach on a halt-claim retry, the remaining-task list on a
+  partial-DONE retry. Looping without adding perspective is not a
+  fix.
 - **Final verification gate runs every project-prescribed check.**
   The verifier discovers the command set from the project's own
   docs (plan / spec / CLAUDE.md / Makefile) rather than the skill
@@ -1002,9 +1234,22 @@ return { status: 'complete',
 - **Never commit; never revert/reset/stash/clean** (binds the skill
   and every agent). Implementers checkpoint with `git add -A`
   (non-destructive); recovery is fix-forward.
+- **The walk-away contract.** A user who runs `/execute-plan`
+  expects to return — possibly hours later — to either a clean
+  completion + closing walk, or a single legitimate escalation
+  waiting for their input. They are not at the keyboard while the
+  run executes. The supervisor self-heals any failure that is not
+  one of the explicit escalations below: most importantly, a
+  `Workflow` launch error (parse error, meta validation, args
+  validation) is **never** a stopping condition — the supervisor
+  diagnoses, fixes, and re-invokes, up to the launch-retry cap in
+  step 4. Stalling silently on a launch error breaks the contract.
 - Escalations are the only return-to-human boundaries: `blocked`
   (strategist-confirmed credentials/destruction), `work-stuck`
   (implementer ↔ validator could not converge, the verification
-  gate failed, or the no-deferral gate could not be cleared
-  autonomously), `invalid-plan` (structural — missing falsifier
-  or missing story slug on an acceptance pass).
+  gate failed, the no-deferral gate could not be cleared
+  autonomously, or a second halt-claim came in after the
+  strategist intervened), `invalid-plan` (structural — missing
+  falsifier or missing story slug on an acceptance pass — or
+  strategist-confirmed `plan-impossible` / `plan-unintelligible`
+  from the implementer, surfaced with both reports verbatim).

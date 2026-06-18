@@ -8,7 +8,7 @@ description: "ONLY activated by explicit /review-design slash command. Never aut
 Whole-corpus audit of the project's durable design docs under `.ok-planner/design/`, in two passes:
 
 1. **Compliance pass** — every live concept, story, decision, and tension is checked against the canonical artifact rules (self-containment, tension surface, current-state-only — canonically stated in `skills/_shared/artifact-definitions.md`).
-2. **Coverage + intent-drift pass** — every live story is checked for proof coverage (at least one `@story:<slug>`-annotated file in the codebase) and intent drift (proof artifacts no longer satisfying their story's `Proof:` field). Dangling `@story:<slug>` annotations (pointing at retired or missing stories) are also surfaced.
+2. **Coverage + intent-drift pass** — every live story is checked for proof coverage (at least one `@story:<slug>`-annotated file in the codebase) and intent drift (proof artifacts no longer satisfying their story's `Proof:` field). Dangling and kind-mismatched annotations (`@concept:<slug>` / `@story:<slug>` / `@decision:<slug>` pointing at retired, missing, or wrong-kinded artifacts) are also surfaced.
 
 Findings from both passes drive a `review-cleanup` fix loop to clean.
 
@@ -102,17 +102,25 @@ It does not catch **accumulated drift in untouched files** — violations that c
 
      ### Annotation integrity (mechanical)
 
-     `rg -n '@story:\s*\S+'` across the codebase. For every
-     annotation, confirm the slug resolves to a live
-     `.ok-planner/design/stories/<slug>.md` file (skipping
-     `_retired/`).
+     `rg -n '@(concept|story|decision):\s*\S+'` across the
+     codebase. For each match, parse (kind, slug) and confirm
+     `.ok-planner/design/<kind>s/<slug>.md` exists (skipping
+     `_retired/`). The rule (symmetric across the three kinds)
+     lives in `skills/_shared/artifact-definitions.md` under
+     {{ANNOTATION-INTEGRITY-RULE}}.
 
-     - **Dangling annotation** — annotation slug does not resolve
-       to a live story. Record the annotation site (file:line),
-       the unresolved slug, and the recommendation: either
-       repoint the annotation to the live successor (if the
-       story was renamed), or remove the annotation (if the
-       story was retired and this file is no longer a proof).
+     - **Dangling annotation (slug-dangling)** — slug does not
+       resolve under any of the three design directories. Record
+       the annotation site (file:line), the unresolved (kind,
+       slug) pair, and the recommendation: repoint to the live
+       canonical slug if the artifact was renamed, or remove the
+       annotation if the artifact was retired.
+     - **Dangling annotation (kind-mismatch)** — slug exists, but
+       at a different kind than the annotation claims (e.g.
+       `@concept:foo` but only `stories/foo.md` exists). Record
+       the annotation site, the offending (kind, slug) pair, and
+       the correct kind. Recommendation: rename the annotation
+       prefix to match the artifact's actual kind.
 
      ### Output format
 

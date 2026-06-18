@@ -75,7 +75,7 @@ aliases:
 
 ## Invariants
 
-<Load-bearing properties stated as properties of the concept, not as descriptions of code. Annotated invariants (`@blessed-invariant`) belong here — list them with their IDs if the codebase numbers them. Coding-style annotations (`@agent-contract`, `@source:`) are code-referent and are not cited; state the property itself instead.>
+<Load-bearing properties stated as properties of the concept, not as descriptions of code. If the codebase numbers its invariants under any convention, list those IDs here — the ID is stable across file moves, the file path is not.>
 
 ## Aliases
 
@@ -250,7 +250,7 @@ Concept, story, and decision bodies are self-contained. The design owns the defi
 
 **Allowed in artifact body** (concepts / stories / decisions):
 - Other artifact slugs across catalogs: `see also: claim-handle`, `concept:claim-handle`, `story:claim-co-holder`, `decision:persistence`.
-- Invariant IDs the codebase uses (e.g. `@blessed-invariant: 4`) — the ID is stable across file moves; the file path is not. Coding-style annotations whose referent is the code itself (`@agent-contract`, `@source:`, `@constraint:`, `@deliberate:`) are not citable: a tag belongs to whichever layer owns its referent, and the design docs cite only design-owned identities.
+- Invariant IDs the codebase uses, whatever the project's numbering convention is — the ID is stable across file moves; the file path is not. Code-referent annotations the project may carry for its own coding conventions are not cited here: those tags belong to the code layer, and design docs cite only design-owned identities (concept / story / decision slugs and invariant IDs).
 
 **Disallowed in artifact body** (concepts / stories / decisions):
 - File or directory paths (`foo/bar.go`, `pkg:foo/bar/baz`, `services/widget/`, etc.) — bare or in any citation form, in-tree or in a sibling repo.
@@ -314,6 +314,27 @@ Findings land in the completion report's `## Coverage divergences` section — t
 **On-demand audit.** The same coverage and intent-drift checks are available outside execute-plan via `/review-design` (whole-corpus) and `/verify` (am-I-done check). The closing audit is the safety net; the standalone skills are for explicit checking.
 
 **Why these bright lines, not stricter ones.** Proofs are not tests in the regression-protection sense. They are exhibitions of story intent that happen to live as runnable code. Treating them as immutable would mean either an unmaintainable codebase or constant friction over routine refactors. The discipline keys on the story's `Proof:` field, not the proof file's literal shape. Most changes pass through ambient; only intent shifts and removals trip the gate.
+
+---
+
+### {{ANNOTATION-INTEGRITY-RULE}}
+
+Code-side annotations `@concept:<slug>`, `@story:<slug>`, and `@decision:<slug>` link code to the design model. Each annotation's slug MUST resolve to a live artifact at the corresponding path: `@concept:<slug>` to `design/concepts/<slug>.md`, `@story:<slug>` to `design/stories/<slug>.md`, `@decision:<slug>` to `design/decisions/<slug>.md`. The discipline is symmetric across the three kinds.
+
+An annotation fails integrity in one of two ways:
+
+- **Dangling** — the slug does not exist at any kind. The annotation points at a design artifact that was never written, was renamed, or was retired without sweeping the code. Fix: rename the annotation to the canonical slug if the artifact exists under a different name, or drop the annotation if the artifact no longer exists.
+- **Kind-mismatch** — the slug exists, but at a *different* kind than the annotation claims (e.g. `@concept:foo` but `concepts/foo.md` does not exist while `stories/foo.md` does). The author reached for the wrong tag prefix. Fix: rename the annotation to match the artifact's actual kind. Story / decision / concept name distinct kinds of design content; the annotation must carry the kind that matches the artifact.
+
+The slug stamped into the code is the *exact* basename of the design artifact's filename. Paraphrasing — using a short-form code annotation against a long-form artifact slug — is dangling, even when the short form reads naturally. The artifact's filename is the canonical slug; the annotation cites it byte-for-byte.
+
+**Where this is checked:**
+
+- At validator time, per pass — newly-added annotations in the diff must resolve to live artifacts of the correct kind. A dangling or kind-mismatched annotation is a pass-blocking finding (the implementer paraphrased or wrong-kinded the citation; fix on next dispatch).
+- At closing audit time, whole-corpus — `rg -n '@(concept|story|decision):\s*\S+'` across the codebase; every match's slug-and-kind pair must resolve. Findings land in the completion report's `## Coverage divergences` section under the **Dangling annotation** entry kind (with a sub-flavor noting whether it is slug-dangling or kind-mismatched).
+- On demand via `/review-design` and `/verify` — same integrity rule, no pass scope.
+
+**Why this rule, not "any annotation is fine."** The annotation is the durable link between code and the design model. A paraphrased slug or wrong-kind tag looks like a link but resolves to nothing — a future reader (or agent) chasing the citation finds no artifact, with no signal whether the artifact was missed, retired, or simply named differently. The rule keeps the link real: an annotation either resolves to an artifact of the named kind, or it should not exist at all.
 
 ---
 

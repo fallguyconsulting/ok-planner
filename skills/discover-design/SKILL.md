@@ -35,11 +35,11 @@ See `skills/_shared/artifact-definitions.md` for the canonical
 
 The relationship between design and code is **code references
 design**, not the other way around: code at points of enforcement
-annotates back to the design (the way `@blessed-invariant`
-annotations already do for properties), and the design owns the
-definition. A refactor that moves files around does not invalidate
-the design; a code path that diverges from a concept's stated
-boundary is a defect.
+carries an `@concept:` / `@story:` / `@decision:` annotation
+back to the design slug, and the design owns the definition. A
+refactor that moves files around does not invalidate the design;
+a code path that diverges from a concept's stated boundary is a
+defect.
 
 Capturing the as-is design plus its tensions up front is useful even
 before refinement: future reviewers can distinguish a design choice
@@ -331,9 +331,9 @@ Agent (general-purpose):
     template, node, executor, etc. For each, capture: definition,
     what it does, where it lives in code, what its boundaries are,
     what neighboring concepts it interacts with.
-  - Invariants the code maintains, including annotated ones
-    (`@blessed-invariant`, `@agent-contract`, etc.) and unannotated
-    ones the code clearly enforces.
+  - Invariants the code maintains — whether the project marks them
+    with an annotation convention of its own, asserts them with a
+    named test, or just enforces them without a label.
   - Cross-cutting disciplines: opacity rules, transaction shapes,
     error-handling patterns, naming conventions, layering rules
     enforced by lint configs.
@@ -398,8 +398,10 @@ Agent (general-purpose):
   ### How to find structure
 
   - Read entry points first (`cmd/*`, `main.*`, `bin/*`).
-  - Read every file with annotations (`@blessed-invariant`,
-    `@agent-contract`, `@source`, `@diverged`, `@concept`).
+  - Read every file already carrying an `@concept:` annotation;
+    also any project-specific structured annotations in use (run
+    a quick `grep` over the tree to surface what tagging vocabulary
+    the codebase has, if any).
   - Read interface declarations in shared infrastructure.
   - Read schema migrations end to end.
   - Read CLAUDE.md, any `docs/concepts/` material, any `cold-read/`
@@ -453,9 +455,10 @@ Agent (general-purpose):
     paragraphs), not one-liners. Code surface lists specific
     file:line citations. Prose surface is actually consulted, not
     skipped.
-  - **Coverage**: every annotated invariant (`@blessed-invariant`,
-    `@agent-contract`) has a corresponding `_discover/` entry, or is
-    folded into one. Every top-level interface in shared
+  - **Coverage**: every invariant the codebase carries — whether
+    marked with a project-specific annotation, asserted with a named
+    test, or enforced inline — has a corresponding `_discover/` entry
+    or is folded into one. Every top-level interface in shared
     infrastructure packages has coverage. Every migration's
     structural intent is captured somewhere.
   - **Observations are concrete**: "this is a tension candidate"
@@ -474,9 +477,10 @@ Agent (general-purpose):
   - Walk every file in `.ok-planner/design/_discover/`.
   - Sample-verify a handful of file:line citations against the
     actual code — confirm they say what the discoverer claims.
-  - Cross-check coverage against `git grep -l @blessed-invariant`
-    and `git grep -l @agent-contract` (or the project's equivalent)
-    — every annotation should map to an entry.
+  - If the project uses its own structured annotation vocabulary
+    for invariants or contracts, cross-check coverage with a
+    `git grep -l <tag>` per tag — every annotated site should map
+    to an entry.
   - Walk the project's top-level package list and confirm any
     package with a non-trivial public interface has coverage.
 
@@ -1127,10 +1131,10 @@ means. Code references the design via in-source annotations:
   (the persistence call, the registration mechanism, the chosen
   cadence)
 
-These mirror the project's existing `@blessed-invariant`,
-`@source:`, `@diverged:`, `@agent-contract` patterns. Each annotation
-marks a load-bearing site, not every file that happens to touch the
-artifact.
+Each annotation marks a load-bearing site, not every file that
+happens to touch the artifact. If the project already runs its own
+structured annotation vocabulary for other purposes, these three
+sit alongside it; ok-planner has no opinion on that vocabulary.
 
 Two artifacts together replace the need for an external index:
 
