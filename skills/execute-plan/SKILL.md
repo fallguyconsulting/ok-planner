@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: "ONLY activated by explicit /execute-plan slash command or ok-planner pipeline. Never auto-triggered. Drives a plan to completion pass by pass as a Workflow with an opposing implementer ↔ validator pair: dispatch the implementer, dispatch a disinterested validator that argues against the pass delivering, loop on rejection, escalate on exhaustion. Every three cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work so issues don't pile up to the end. After all passes clear, a final verification gate runs the project's build + test + lint suite; the no-deferral audit and completion auditor follow. Human-facing intake, escalation, final review, and the closing walk stay in the skill."
+description: "ONLY activated by explicit /execute-plan slash command or ok-planner pipeline. Never auto-triggered. Drives a plan to completion pass by pass as a Workflow with an opposing implementer ↔ validator pair: dispatch the implementer, dispatch a disinterested validator that argues against the pass delivering, loop on rejection, escalate on exhaustion. Every three cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work so issues don't pile up to the end. After all passes clear, a final verification gate runs the project's build + test + lint suite and loops with a verification fixer until clean (capped at 3 cycles); the no-deferral audit and completion auditor follow. Human-facing intake, escalation, final review, and the closing walk stay in the skill — and the orchestrator owns completion: a workflow `escalate` is the starting point for an autonomous-repair attempt, not a user-handoff, unless the failure is literally impossible to advance."
 ---
 
 # Executing a Plan (Workflow engine)
@@ -91,9 +91,9 @@ deeper context for those passes.
 | In the workflow (code, headless) | In the skill (prose, human-facing) |
 |---|---|
 | dispatch implementer; dispatch validator; loop on rejection | parse the plan → structured passes |
-| interim review-and-fix checkpoint every 3 cleared passes | escalation conversation (blocked, work-stuck, invalid-plan) |
-| strategist on first BLOCKED or INVALID_PLAN | |
-| final verification gate (build + test + lint per project docs) | the closing walk (proofs working + decisions kept + decisions diverged + coverage divergences) |
+| interim review-and-fix checkpoint every 3 cleared passes | autonomous repair on `work-stuck` escalations whose lastFailure is concrete and fixable (see step 5) |
+| strategist on first BLOCKED or INVALID_PLAN | escalation conversation only when the escalation is genuinely beyond reach |
+| final verification gate (build + test + lint per project docs) loops with a fixer until clean (capped at 3) | the closing walk (proofs working + decisions kept + decisions diverged + coverage divergences) |
 | no-deferral audit as gate (loops with fixer until clean) | final review (`review-work` → `review-cleanup`) |
 | completion auditor (writes the four-section report, runs coverage + intent-drift audit) | archive |
 | advance per pass; converge; verify; closing audits | |
@@ -190,46 +190,106 @@ in the script instead, as the engine's input guard notes.)
    `status` per step 5.
 
 5. **Handle the result.**
+
+   **You own completion.** The user ran `/execute-plan` to come back
+   to a working product, not to a half-finished diff with a
+   "couldn't get past this last bit" note. The walk-away contract
+   binds *you*, the orchestrator, not just the workflow engine —
+   the engine is one tool you drive toward completion, and what it
+   returns is the *starting point* of your next decision, not the
+   end of your responsibility. An escalation is the engine telling
+   you "I stopped, here's where," not telling you "your turn to
+   give up." Only when the work is *literally* impossible to
+   advance (credentials only the user can provide; the plan itself
+   is structurally broken; an architectural call only the user can
+   make) does the run pause for the user. Mechanical defects, even
+   ones the engine couldn't repair autonomously, are yours to fix
+   and resume.
+
    - `status: "complete"` → the workflow cleared every pass, the
      final verification gate passed, the no-deferral audit ran to
      clean, and the completion report was produced. Surface the
      report path and a one-line summary, then go to step 6.
-   - `status: "escalate"` → the workflow stopped at a boundary only a
-     human can clear. Surface it verbatim and **wait**:
-     - `kind: "blocked"` — the strategist confirmed a BLOCKED is
-       genuine (credentials/access only the user can provide, or an
-       unauthorized destructive action). Give the user the bullet,
-       the detail, the strategist's `humanAsk` if any, and the
-       passes already cleared.
-     - `kind: "work-stuck"` — one of the in-pass termination predicates
-       fired: two consecutive zero-progress implementer dispatches on
-       a partial-DONE loop, two validator rejections on a full-DONE
-       loop, two implementer dispatches in a row that returned no
-       useful report (null / malformed), a second halt-claim
-       (BLOCKED or INVALID_PLAN, in any combination) after a
-       strategist intervention, OR a post-pass gate (final
-       verification, no-deferral audit) could not clear. `lastFailure`
-       carries the relevant signal — the validator's last critique,
-       the strategist's different approach already tried, the
-       remaining-task list, or the failing gate's output. Surface
-       with options: sharpen the brief and resume, rework the
-       pass/plan, or abandon.
+
+   - `status: "escalate"` → the workflow stopped, but escalation is
+     NOT the same as user-handoff. Read `lastFailure` and decide,
+     in this order:
+
+     **a. Can you repair this autonomously?** A concrete, fixable
+     defect in the working tree — a build setting, a missing
+     Info.plist entry, a project.yml omission, a missing module
+     link, a single-line lint allowlist gap, a typo, a one-line
+     plan-task gap whose fix is mechanical — IS your job to fix
+     directly and resume the run with `resumeFromRunId`. You have
+     the same tools the engine's fixer agents have; if the engine
+     couldn't repair it in its capped cycles (the verifier fixer
+     loops 3 times, the no-deferral fixer 3 times), that doesn't
+     mean the repair is impossible — sometimes one more pair of
+     eyes on the failure is what it needed. Diagnose, fix, resume.
+     Repeat for as many turns as it takes; the resume primitive
+     replays cached agents instantly, so iteration is cheap. This
+     is the **primary** escalation-handling path, not the
+     fallback.
+
+     **b. Only if (a) is genuinely beyond reach, relay to the
+     user.** Beyond reach means: the failure requires a decision
+     they alone can make (architectural rework, choosing between
+     incompatible approaches that the spec doesn't disambiguate),
+     a resource you can't obtain (credentials, access), or
+     authorization for a destructive action the plan doesn't
+     cover. "I'd have to think hard about this" is not beyond
+     reach. "The fix isn't obvious from the lastFailure alone" is
+     not beyond reach — read the failing files, read the spec,
+     read the diff, and *figure it out*. The bar for relaying is
+     high: the work must be impossible for *you* to push through,
+     not just inconvenient.
+
+     When you do need to relay, the three kinds carry different
+     framings:
+
+     - `kind: "blocked"` — the strategist confirmed credentials /
+       authorized destruction. Give the user the bullet, the
+       detail, the strategist's `humanAsk` if any, and the passes
+       already cleared. This kind almost always reaches the user;
+       you cannot provide credentials autonomously.
+
+     - `kind: "work-stuck"` — one of the in-pass termination
+       predicates fired (two consecutive zero-progress implementer
+       dispatches on a partial-DONE loop, two validator rejections
+       on a full-DONE loop, two implementer dispatches that
+       returned no useful report, a second halt-claim after a
+       strategist intervention) OR a post-pass gate (final
+       verification, no-deferral audit) could not clear after its
+       fixer cycles. `lastFailure` carries the signal — the
+       validator's last critique, the strategist's different
+       approach already tried, the remaining-task list, or the
+       failing gate's output. **Default action: attempt (a)
+       first.** Post-pass gate failures almost always have a
+       concrete fix in the lastFailure. In-pass terminations
+       sometimes do too (a validator critique that names a
+       specific gap you can resolve directly). Only when the
+       repair genuinely requires user judgment do you relay; when
+       you do, surface with options: sharpen the brief and
+       resume, rework the pass/plan, or abandon.
+
      - `kind: "invalid-plan"` — either (a) the engine's defensive
        validation found a pass missing its Falsifier brief or an
        acceptance pass missing its story slug annotation (`detail`
-       carries the structural issue), or (b) the implementer declared
-       the plan impossible to implement or unintelligible, and the
-       strategist concurred — `implementerReport` (`reason` =
-       `plan-impossible` or `plan-unintelligible`, plus a concrete
-       `detail` citing the offending passage) and `strategistReport`
-       (`concurringAnalysis` — the disinterested write-up of what
-       breaks and what alternatives were considered and rejected)
-       carry the full reasoning. Surface both reports verbatim, then
-       take it back to `write-plan`.
+       carries the structural issue), or (b) the implementer
+       declared the plan impossible to implement or unintelligible
+       and the strategist concurred — `implementerReport` and
+       `strategistReport` carry the full reasoning. This kind
+       almost always reaches the user; structural plan defects
+       need to go back to `write-plan` to rewrite.
 
-     When the user resolves a `blocked` or `work-stuck`, **resume**
-     by re-invoking the workflow (step 4) with `args.passes` set to
-     the remaining passes (the stuck pass onward) and
+     **Resuming.** When you've applied a fix (autonomous or
+     user-supplied), resume the workflow by re-invoking it with
+     `resumeFromRunId: "<the original run ID>"` and the same
+     `scriptPath`. The runtime replays the cached prefix of agents
+     instantly and resumes live from the failing point. If you
+     resume across an escalation that required restructuring (a
+     plan rewrite, a removed pass), instead re-invoke with
+     `args.passes` set to the remaining passes and
      `args.priorCleared` raised by this escalation's `cleared`
      count.
 
@@ -300,7 +360,7 @@ loop; the validator is the judge of whether the pass delivered.
 ```javascript
 export const meta = {
   name: 'execute-plan-engine',
-  description: 'Opposing implementer ↔ validator pair per pass, with a strategist on BLOCKED or INVALID_PLAN. Partial-DONE dispatches loop on forward progress (no fixed cap; two consecutive zero-progress dispatches escalate); validator rejections cap at 2. Every 3 cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work. After all passes clear, the final verification gate runs the project\'s build + test + lint suite; the no-deferral audit + completion auditor follow.',
+  description: 'Opposing implementer ↔ validator pair per pass, with a strategist on BLOCKED or INVALID_PLAN. Partial-DONE dispatches loop on forward progress (no fixed cap; two consecutive zero-progress dispatches escalate); validator rejections cap at 2. Every 3 cleared passes, an interim review-and-fix checkpoint sweeps the accumulated work. After all passes clear, the final verification gate runs the project\'s build + test + lint suite and loops with a fixer until clean (capped at 3 cycles); the no-deferral audit + completion auditor follow.',
   phases: [
     { title: 'Execute', detail: 'implementer ↔ validator per pass; interim review every 3 cleared passes' },
     { title: 'Verify', detail: 'final build + test + lint gate against the staged tree' },
@@ -440,6 +500,37 @@ const INTERIM_REVIEW_SCHEMA = {
   },
 }
 
+// Structured fixer output: per-input-finding resolution by 1-based index.
+// Used by the interim-review, no-deferral, and verification fixers (and
+// could extend to the per-pass implementer-as-fixer on validator rejection
+// — see "Per-issue accounting" in the prose above). Forces the fixer to
+// acknowledge every finding individually rather than reporting "I fixed
+// all N" prose that can silently drop items. Coverage is checked at the
+// call site via \`checkFixerCoverage\` — every input index 1..N must
+// appear exactly once. status=DONE iff every disposition is "fixed" or
+// "already-clean"; BLOCKED iff any disposition is "blocked".
+const FIXER_REPORT_SCHEMA = {
+  type: 'object',
+  required: ['status', 'resolutions'],
+  properties: {
+    status: { enum: ['DONE', 'BLOCKED'] },
+    resolutions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['index', 'disposition'],
+        properties: {
+          index: { type: 'integer' },          // 1-based index into the input findings list
+          disposition: { enum: ['fixed', 'already-clean', 'blocked'] },
+          summary: { type: 'string' },          // what changed (fixed) / why no fix was needed (already-clean) / what blocks (blocked)
+          fileLines: { type: 'array', items: { type: 'string' } },  // file:line(s) of the change(s) when disposition=fixed
+        },
+      },
+    },
+    blockedDetail: { type: 'string' },  // populated when any resolution is "blocked": names what the user needs to provide
+  },
+}
+
 // Completion auditor: produces the four-section report (proofs walked /
 // decisions kept / decisions diverged / coverage divergences).
 const COMPLETION_AUDIT_SCHEMA = {
@@ -474,6 +565,53 @@ const VERIFY_SCHEMA = {
 // Formats a pass's story slug(s) for prose: "STORY-a" or "STORY-a, STORY-b".
 // A shared acceptance pass carries a comma-separated slug list (see the
 // parse shape in the skill's step 2).
+// Validates a fixer report's resolutions cover every input finding by
+// 1-based index exactly once. Returns null on success, or a string
+// critique the orchestrator passes back to the fixer on re-dispatch.
+function checkFixerCoverage(report, expectedCount) {
+  if (!report || !Array.isArray(report.resolutions)) {
+    return `Fixer report missing the resolutions array; expected ${expectedCount} resolutions, one per input finding by 1-based index.`
+  }
+  const seen = new Map()
+  for (const r of report.resolutions) {
+    if (typeof r.index !== 'number' || r.index < 1 || r.index > expectedCount) {
+      return `Resolution index ${r.index} is out of range; expected 1..${expectedCount}.`
+    }
+    if (seen.has(r.index)) {
+      return `Resolution for index ${r.index} appeared more than once; each input finding must appear exactly once.`
+    }
+    seen.set(r.index, r)
+  }
+  const missing = []
+  for (let i = 1; i <= expectedCount; i++) {
+    if (!seen.has(i)) missing.push(i)
+  }
+  if (missing.length) {
+    return `Resolutions missing for input finding(s): ${missing.join(', ')}. Every finding must have a disposition (fixed / already-clean / blocked).`
+  }
+  return null
+}
+
+// Dispatches a fixer with up to maxAttempts to produce a coverage-clean
+// report. On a coverage gap, re-dispatches with the gap named as the
+// critique. Returns the last fixer report (may still have a coverage
+// gap; caller decides whether to escalate or proceed — the independent
+// re-check is the safety net for "claimed-fixed but still present").
+async function dispatchFixerWithCoverage(promptFn, findings, baseLabel, phase, maxAttempts = 2) {
+  let critique = null
+  let report = null
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    report = await agent(promptFn(findings, critique), {
+      label: `${baseLabel}.${attempt}`, phase, schema: FIXER_REPORT_SCHEMA,
+    })
+    const gap = checkFixerCoverage(report, findings.length)
+    if (!gap) return report
+    log(`${baseLabel} fixer coverage gap on attempt ${attempt}: ${gap}`)
+    critique = `Your prior attempt was rejected: ${gap}\n\nReturn the resolution covering every input finding by 1-based index, exactly once. Every finding (1..${findings.length}) gets a disposition: fixed / already-clean / blocked.`
+  }
+  return report
+}
+
 function storyRefs(p) {
   return String(p.storySlug || '').split(',').map(s => s.trim()).filter(Boolean)
     .map(s => `STORY-${s}`).join(', ')
@@ -482,7 +620,7 @@ function storyRefs(p) {
 function implementerPrompt(p, idx, total, priorFailure) {
   const hasSpec = specPath && specPath !== 'none'
   const acceptanceNote = p.isAcceptancePass
-    ? `\nThis is an **acceptance pass** for ${storyRefs(p)}. Each story carries Acceptance, Falsifier, and Proof fields — read them in the spec. A story names what the user does and observes, in user terms; the delivery surface (CLI verb / HTTP route / wire message / job) is in the spec's relevant TD, not in the story. Your job is BOTH the integrating wiring AND, per story, the proof artifact (demo / example / executable proof) that story's Proof field specifies — a shared pass never merges artifacts away. Each artifact boots the real assembled product through the delivery surface the TDs prescribe, drives its story's Acceptance, exhibits the observable outcome, and uses the real value-delivering component — no stubs.`
+    ? `\nThis is an **acceptance pass** for ${storyRefs(p)}. Each story carries Acceptance, Falsifier, and Proof fields — read them in the spec. A story names what the user does and observes, in user terms; the delivery surface (CLI verb / HTTP route / wire message / job) is in the spec's relevant TD, not in the story. Your job is BOTH the integrating wiring AND, per story, the proof artifact (demo / example / executable proof) that story's Proof field specifies — a shared pass never merges artifacts away. Each artifact boots the real assembled product through the delivery surface the TDs prescribe, drives its story's Acceptance, exhibits the observable outcome, and uses the real value-delivering component — no stubs.\n\n**You MUST run each proof artifact yourself before reporting DONE, not just produce it.** Boot the project's real stack (\`docker compose up\`, \`make compose-run\`, the project's all-in-one image, whatever it provides — you have a shell, you can boot it) and execute the demo / example / proof against it. Confirm its assertions actually pass. A proof artifact that *would* prove the story if executed, but that you never executed, is not a delivered proof — it is a *hopeful* one, and the bug surfaces only when someone else tries it (the canonical failure mode is a demo that asserts behavior the architecture cannot satisfy; nobody notices until cycle 2 of review-work, by which point the implementer's context is gone). If the project has no obvious mechanism to boot the assembled stack, treat that as part of the pass: add the make target, the script, the docker-compose snippet — whatever runs your demos — and run them through it. The plan may separate "produce the artifact" from "run the artifact" into different tasks; run it as part of producing it anyway. The separation is a planning artifact, not a license to ship un-run proofs. Genuine BLOCKED on running a proof — boot infrastructure that requires credentials only the user can provide, or a destructive action you don't have authority for — is the only acceptable non-execution.`
     : ''
   const retry = priorFailure
     ? `\n## Note from the orchestrator (prior dispatch did not clear)\n${priorFailure}\nThe working tree already holds the staged work from the prior dispatch(es) on this pass. Inspect the current state first and fix forward — repair or re-run what failed, but do NOT blindly redo a task that already landed (a non-idempotent edit applied twice corrupts the tree).\n`
@@ -569,7 +707,7 @@ Falsifier brief: ${p.falsifier}${storyContext}
 
 4. **Did the change introduce bugs or regressions?** A diff that changes a shared surface (a route, a type field, a symbol, a contract) has callers, importers, clients, and adjacent components that depend on it. Sweep the codebase for every dependent site and verify the implementer swept them too. A dependent site that wasn't updated is a regression the pass introduced — even when nothing in the spec or the Falsifier named it.
 
-5. **For acceptance passes: check the proof.** Has the implementer produced the named proof artifact? Does it boot the real assembled product through the real entry point, or construct components in-process and call them directly? (The latter is hollow.) Is the value-delivering component real and doing real work, or stubbed? Would a third party reading or running the artifact conclude the story is delivered? Also: **does the proof artifact carry an \`@story:<slug>\` annotation** in a top-of-file comment? A proof file without the annotation is not linked to its story for coverage purposes — flag it as a missing annotation, even if the proof otherwise exhibits the story correctly. The plan's proof task should have directed the implementer to include it; if it didn't, the validator catches it here.
+5. **For acceptance passes: check the proof — by running it.** Has the implementer produced the named proof artifact? Does it boot the real assembled product through the real entry point, or construct components in-process and call them directly? (The latter is hollow.) Is the value-delivering component real and doing real work, or stubbed? Would a third party reading or running the artifact conclude the story is delivered? Also: **does the proof artifact carry an \`@story:<slug>\` annotation** in a top-of-file comment? A proof file without the annotation is not linked to its story for coverage purposes — flag it as a missing annotation, even if the proof otherwise exhibits the story correctly. The plan's proof task should have directed the implementer to include it; if it didn't, the validator catches it here.\n\n   **Then run the proof artifact yourself.** Boot the project's stack (the implementer's discipline above required them to leave it bootable) and execute the demo / example / proof. Code review alone is insufficient: proofs that *look* correct can still assert unsatisfiable conditions — the canonical instance is a demo demanding producer-side behavior the architecture handles at a different layer; the code reads fine, the script exits 1 the moment you actually run it. If the artifact does not exit clean, the pass does NOT deliver, and the critique cites the failing assertion. If you cannot boot the stack (no Docker, no network, missing infra the project should have provided), flag *that* as the finding — never approve on appearance alone.
 
 5a. **For any pass that touches a \`@story:<slug>\`-annotated file**: confirm the touch is accounted for. A modification to a \`@story:<slug>\`-annotated file is acceptable when (i) the spec's \`## Proof changes\` section has an A/B/C entry for the story, OR (ii) the modification is ambient (a refactor that incidentally touches the file's call site without changing what it exhibits — same value-delivering component, same observable outcome, same Acceptance trigger). If neither holds — the diff touches a protected file and the spec didn't enumerate it and the touch is not ambient — the pass does NOT deliver. This catches off-spec proof modifications at validator time, before they ship.
 
@@ -613,7 +751,7 @@ Falsifier brief: ${p.falsifier}${storyContext}
 - Default to **does_not_deliver**. Confirm with **delivers** only when you've actively tried to find evidence the pass falls short and cannot.
 - Cite specific file:line evidence in the diff for whichever verdict you reach. "Looks reasonable" is not a verdict.
 - The Falsifier names the spec author's minimum, not your ceiling. A dependent site outside the Falsifier's named scope is still a finding.
-- Hollow proofs are the canonical failure mode for acceptance passes: shape checks, registration assertions, in-process construction calling handlers directly, canned-success stubs at the value-delivering component. Catch them.
+- Hollow proofs are the canonical failure mode for acceptance passes: shape checks, registration assertions, in-process construction calling handlers directly, canned-success stubs at the value-delivering component, AND — most insidiously — artifacts that *would* prove the story if run but that nobody ever ran (the implementer believed the code was right; the validator code-reviewed instead of executing; the failure surfaces only when someone tries it for real). Catch them — including by *executing* the artifact yourself per step 5 above. Reading is not enough; you must run.
 
 ## Your return value
 Return the verdict object:
@@ -724,13 +862,14 @@ Do NOT categorize by severity — every issue you list goes to a fixer. Return t
 `
 }
 
-function interimFixPrompt(findings) {
+function interimFixPrompt(findings, priorCritique) {
   const list = findings.map((f, i) => `${i + 1}. ${f.location} — ${f.problem}\n   Why: ${f.why || '(unstated)'}\n   Suggested fix: ${f.fix || '(reviewer left the fix to you)'}`).join('\n')
+  const retryNote = priorCritique ? `\n## Note from the orchestrator (prior attempt rejected)\n${priorCritique}\n` : ''
   return `The interim reviewer found ${findings.length} issue(s) in the plan's accumulated work. Fix every one of them — no triage, no deferral.
-
+${retryNote}
 ${specPath && specPath !== 'none' ? `Use the spec at ${specPath} as the source of intent.` : `Use the plan at ${planPath} as the source of intent.`}
 
-## Findings to fix
+## Findings to fix (each numbered 1..${findings.length}; the structured return below indexes back into these)
 ${list}
 
 ## Discipline
@@ -741,7 +880,20 @@ ${list}
 - Leave the tree in a working state.
 - Checkpoint with \`git add -A\` after each fix. NEVER revert/reset/stash/clean; do NOT commit.
 
-When every finding is fixed, report DONE.
+## Your return value (structured — per-input-finding accounting)
+
+Return the resolution object covering ALL ${findings.length} input findings:
+
+- **status**: DONE iff every resolution disposition is "fixed" or "already-clean". BLOCKED iff any resolution is "blocked".
+- **resolutions**: exactly ${findings.length} entries, one per input finding, indexed by 1-based input position. Every index 1..${findings.length} must appear exactly once. No index outside that range; no duplicates; no omissions.
+- Per resolution:
+  - **index**: the 1-based input finding this resolution covers.
+  - **disposition**: one of:
+    - "fixed" — you made a change that resolves the finding. \`summary\` names what changed in one short sentence; \`fileLines\` lists the file:line of the edit(s).
+    - "already-clean" — the input mis-identified the issue, or it was resolved upstream by another fix. \`summary\` explains why no edit was needed (and cite evidence: a re-grep, a file inspection, etc. — "already-clean" without justification reads as a silent drop).
+    - "blocked" — you cannot fix this finding (credentials/access/architectural-call only the user can provide). \`summary\` names the specific block; the top-level \`blockedDetail\` summarizes the user-ask.
+
+The orchestrator validates coverage at the call site. A report missing findings, repeating indices, or going out of range is rejected; you'll be re-dispatched with the coverage critique, counting against the cycle cap.
 `
 }
 
@@ -760,7 +912,7 @@ Each of these is a finding the run does NOT advance past until cleared:
 - An error class declared but never emitted, an event type declared but never published.
 - A config flag or field accepted but ignored.
 - A function whose body is a hard-coded canned return when the spec asks for it to do real work.
-- An acceptance pass's proof artifact missing, empty, or trivially passing (asserts \`true\`, returns \`200\` without exercising the story).
+- An acceptance pass's proof artifact missing, empty, trivially passing (asserts \`true\`, returns \`200\` without exercising the story), OR never actually executed against a running stack (only ever code-reviewed — surfaces as a script asserting unsatisfiable conditions, a curl against a route that doesn't exist, or any failure mode that runs cleanly only on paper).
 - Any \`raise NotImplementedError\` / \`panic("unimplemented")\` / \`throw new Error("not yet")\` on a spec-dependent path.
 
 ## What does NOT count (do not flag)
@@ -780,11 +932,12 @@ Return an empty findings array only when the diff is genuinely deferral-free.
 `
 }
 
-function noDeferralFixerPrompt(findings) {
+function noDeferralFixerPrompt(findings, priorCritique) {
   const list = findings.map((f, i) => `${i + 1}. ${f.location} — ${f.kind}: ${f.why || '(no rationale)'}\n   Excerpt: ${f.excerpt || ''}`).join('\n')
+  const retryNote = priorCritique ? `\n## Note from the orchestrator (prior attempt rejected)\n${priorCritique}\n` : ''
   return `The no-deferral auditor found ${findings.length} deferral(s) in the just-completed plan. Each is a completion failure that must be cleared before the run advances. Fix every one of them.
-
-## Findings to clear
+${retryNote}
+## Findings to clear (each numbered 1..${findings.length}; the structured return below indexes back into these)
 ${list}
 
 ## What to do
@@ -797,7 +950,22 @@ For each finding, finish the work the deferral was avoiding. ${specPath && specP
 - Checkpoint with \`git add -A\` after each fix.
 - Do NOT introduce new deferrals while fixing these.
 
-When you have cleared all findings, report DONE. The audit will re-run; any remaining deferral re-dispatches you with the residual list.
+## Your return value (structured — per-input-finding accounting)
+
+Return the resolution object covering ALL ${findings.length} input findings:
+
+- **status**: DONE iff every resolution disposition is "fixed" or "already-clean". BLOCKED iff any resolution is "blocked".
+- **resolutions**: exactly ${findings.length} entries, one per input finding, indexed by 1-based input position. Every index 1..${findings.length} must appear exactly once.
+- Per resolution:
+  - **index**: the 1-based input finding this resolution covers.
+  - **disposition**:
+    - "fixed" — you wrote the deferred work. \`summary\` names what was implemented; \`fileLines\` lists the file:line of the change(s).
+    - "already-clean" — the auditor mis-identified (e.g. flagged a fixture's intentional short-circuit). \`summary\` cites evidence (a re-read, a file context) and why no deferral exists. Use sparingly — the auditor is biased toward thoroughness, not false-positives.
+    - "blocked" — finishing the deferred work requires user-only input. \`summary\` names the specific block; \`blockedDetail\` summarizes the user-ask.
+
+The orchestrator validates coverage. A report with missing / duplicated / out-of-range indices is rejected and re-dispatched with the coverage critique, counting against the cycle cap.
+
+The audit will independently re-run after your fix; a deferral that re-surfaces despite your "fixed" disposition is evidence the fix didn't land — the next cycle will dispatch you again with the residual list.
 `
 }
 
@@ -813,7 +981,7 @@ function verifierPrompt() {
    - The project's CLAUDE.md (look for "After Code Changes", "Verification", or analogous sections).
    - The project's Makefile / package.json / scripts directory for canonical aggregate targets (e.g. \`make verify\`, \`make test-all\`, \`npm test\`, \`go test ./...\`, \`pytest\`, \`cargo test\`).
 
-   A typical set includes: build / type-check; unit tests; lint; race / concurrency-sensitive tests where the project's docs name them; integration / scenario / e2e tests if the plan touched code under their scope.
+   A typical set includes: build / type-check; unit tests; lint; race / concurrency-sensitive tests where the project's docs name them; integration / scenario / e2e tests if the plan touched code under their scope; **acceptance proof artifacts the plan produced under \`examples/\` (or wherever the project keeps them) if a runner exists** — a \`make demos\` / \`make examples\` target, a CI shell-runner step, or an equivalent. Acceptance proofs are part of the test corpus by intent; if the project has a way to execute them, the verification gate executes them. If the project has NO runner for its proof artifacts, note that in the failure summary as a project-level gap and recommend it as follow-up — but do not invent one inline; treat it as a coverage gap the user should address in the project's own docs/Makefile.
 
 2. **Run every command in the set.** Use Bash. Capture output. Long-running commands are fine — set generous timeouts; this is the final gate.
 
@@ -824,7 +992,7 @@ function verifierPrompt() {
 5. **If everything passes:** return passed=true with the list of commands you ran.
 
 ## What NOT to do
-- Do NOT fix failures. Your job is to detect, not repair. A failure escalates the workflow as work-stuck so a human can decide.
+- Do NOT fix failures. Your job is to detect, not repair. A failure dispatches a dedicated fixer agent that addresses the failure list; the verifier then re-runs against the fixed tree. Only after 3 unsuccessful repair cycles does the workflow escalate.
 - Do NOT skip a command because you think it's "already covered" by another.
 - Do NOT substitute a faster command for one named in the project's docs.
 - Do NOT commit or modify the tree.
@@ -834,6 +1002,51 @@ function verifierPrompt() {
 - commandsRun: array of strings — the commands you actually ran, in order
 - failureSummary: one-line summary of what failed (omit when passed=true)
 - failures: array of strings, one per failing check, with file:line where available (omit when passed=true)
+`
+}
+
+function verifyFixerPrompt(failures, priorCritique) {
+  const failList = (failures || []).length
+    ? (failures || []).map((f, i) => `${i + 1}. ${f}`).join('\n')
+    : '(no per-failure detail returned by the verifier)'
+  const retryNote = priorCritique ? `\n## Note from the orchestrator (prior attempt rejected)\n${priorCritique}\n` : ''
+  return `You are the **verification fixer**. The final verification gate just failed. Your job is to fix every failure so the project's build / test / lint suite passes against the staged tree — no triage, no deferral, no skipping.
+${retryNote}
+## Failures to fix (each numbered 1..${(failures || []).length}; the structured return below indexes back into these)
+${failList}
+
+## What's in scope to fix
+Anything the project's verification command set actually covers. The failures are real signals against the work just delivered — most are mechanical: build-config omissions (missing Info.plist setting, missing module link, wrong deployment target), test-target wiring, lint suppressions or allowlists the plan should have included, type errors in code the plan touched, missing dependency entries, project-yml gaps. Fix the underlying cause, not the symptom.
+
+## What's NOT in scope
+- Net-new spec capability — only fixes for what's already there.
+- "Skip this test" / \`xfail\` / \`@Ignore\` / commenting-out a failing assertion to make red turn green. That's a deferral disguised as a fix.
+- Removing a check from the verifier's command set. The command set is the project's contract; the fix is in the code, not the contract.
+- Reverting prior pass work to dodge a failure. Fix forward.
+
+## Discipline
+- Read each failing command's output and trace the failure to the file(s) responsible.
+- Default to rigor on any tradeoff the fix raises (correctness over the cheaper shape).
+- Do NOT introduce stubs, TODOs, no-ops, or "for now" markers.
+- Leave the tree in a working state.
+- Checkpoint with \`git add -A\` after each fix. NEVER revert/reset/stash/clean; do NOT commit.
+
+## Your return value (structured — per-failure accounting)
+
+Return the resolution object covering ALL ${(failures || []).length} input failures:
+
+- **status**: DONE iff every resolution disposition is "fixed" or "already-clean". BLOCKED iff any resolution is "blocked".
+- **resolutions**: exactly ${(failures || []).length} entries, one per failure, indexed by 1-based input position. Every index 1..${(failures || []).length} must appear exactly once.
+- Per resolution:
+  - **index**: the 1-based input failure this resolution covers.
+  - **disposition**:
+    - "fixed" — you traced the failure and made a change that resolves it. \`summary\` names the root cause + the fix; \`fileLines\` lists the file:line of the edit(s).
+    - "already-clean" — the failure is a pre-existing infrastructure flake unrelated to the plan's work (a transient network error, a Docker pool exhaustion the project should fix separately, etc.). \`summary\` cites the evidence: which command, which output, why it's not a real failure-against-the-work. Use sparingly — verifier failures default to "real."
+    - "blocked" — fixing requires user-only input (credentials for an external service, a destructive action, an architectural call). \`summary\` names the specific block; \`blockedDetail\` summarizes the user-ask.
+
+The orchestrator validates coverage. A report missing failures, duplicating indices, or going out of range is rejected and re-dispatched with the coverage critique, counting against the cycle cap.
+
+The verifier will independently re-run after your fix; a failure that re-surfaces despite your "fixed" disposition is evidence the fix didn't land — the next cycle will dispatch you again with the residual list.
 `
 }
 
@@ -1096,9 +1309,16 @@ for (let i = 0; i < passes.length; i++) {
       }
       residual = review.findings.length
       log(`interim review after ${totalCleared} passes: ${review.findings.length} issue(s); dispatching fixer`)
-      await agent(interimFixPrompt(review.findings), {
-        label: `interim-fix@${totalCleared}#${cycle}`, phase: 'Execute',
-      })
+      const fixerReport = await dispatchFixerWithCoverage(
+        (f, c) => interimFixPrompt(f, c),
+        review.findings,
+        `interim-fix@${totalCleared}#${cycle}`,
+        'Execute',
+      )
+      if (fixerReport && fixerReport.status === 'BLOCKED') {
+        const blockedItems = (fixerReport.resolutions || []).filter(r => r.disposition === 'blocked')
+        log(`interim fixer reported BLOCKED on ${blockedItems.length} finding(s) at cycle ${cycle}: ${fixerReport.blockedDetail || '(no detail)'}; continuing (interim review is best-effort)`)
+      }
     }
     if (residual === 0) log(`interim review after ${totalCleared} passes: clean`)
     else if (residual > 0) log(`interim review after ${totalCleared} passes: fix cycles exhausted with issue(s) outstanding; the final review will converge them`)
@@ -1107,22 +1327,45 @@ for (let i = 0; i < passes.length; i++) {
 
 phase('Verify')
 
-// Final verification gate. The verifier dispatches once and reports
-// passed=true or passed=false. Failure escalates as work-stuck so the user
-// can decide (fix and resume, accept and override, abandon). The skill is
-// project-agnostic so we do NOT run hardcoded commands here — the verifier
-// reads the project's docs to discover its own command set.
-const verifyResult = await agent(verifierPrompt(), {
-  label: 'verify', phase: 'Verify', schema: VERIFY_SCHEMA,
-})
-
-if (!verifyResult || !verifyResult.passed) {
-  return { status: 'escalate', kind: 'work-stuck', pass: -1,
-           lastFailure: `Final verification gate failed: ${(verifyResult && verifyResult.failureSummary) || '(verifier did not return a result)'}.\n\nCommands run: ${(verifyResult && verifyResult.commandsRun || []).join(', ') || '(unknown)'}\n\nFailures:\n${(verifyResult && verifyResult.failures || []).map(f => `- ${f}`).join('\n') || '(no per-failure detail returned)'}`,
-           cleared }
+// Final verification gate as a fixer loop. The verifier dispatches and reports
+// passed/failed. On failure, a verification fixer agent addresses the
+// failure list and the verifier re-runs against the fixed tree. Capped at
+// 3 cycles to bound a pathological case; in practice most verifier
+// failures are mechanical (a build setting, a missing Info.plist, a
+// dependency entry the plan omitted) and clear on the first fixer pass.
+// The skill is project-agnostic so we do NOT run hardcoded commands here —
+// the verifier reads the project's docs to discover its own command set.
+let lastVerify = null
+for (let cycle = 1; cycle <= 3; cycle++) {
+  lastVerify = await agent(verifierPrompt(), {
+    label: `verify#${cycle}`, phase: 'Verify', schema: VERIFY_SCHEMA,
+  })
+  if (lastVerify && lastVerify.passed) {
+    log(`verification gate passed on cycle ${cycle}: ${(lastVerify.commandsRun || []).length} command(s)`)
+    break
+  }
+  const summary = (lastVerify && lastVerify.failureSummary) || '(verifier returned no result)'
+  const failures = (lastVerify && lastVerify.failures) || []
+  log(`verification cycle ${cycle}: failed — ${summary}; dispatching fixer`)
+  const fixerReport = await dispatchFixerWithCoverage(
+    (f, c) => verifyFixerPrompt(f, c),
+    failures,
+    `verify-fixer#${cycle}`,
+    'Verify',
+  )
+  if (fixerReport && fixerReport.status === 'BLOCKED') {
+    const blockedItems = (fixerReport.resolutions || []).filter(r => r.disposition === 'blocked')
+    return { status: 'escalate', kind: 'work-stuck', pass: -1,
+             lastFailure: `Verification fixer reported BLOCKED on cycle ${cycle}: ${fixerReport.blockedDetail || '(no detail)'}\n\nBlocked failures:\n${blockedItems.map(r => `- failure ${r.index}: ${r.summary || '(no summary)'}`).join('\n') || '(none specified)'}`,
+             cleared }
+  }
 }
 
-log(`verification gate passed: ${(verifyResult.commandsRun || []).length} command(s)`)
+if (!lastVerify || !lastVerify.passed) {
+  return { status: 'escalate', kind: 'work-stuck', pass: -1,
+           lastFailure: `Final verification gate could not be cleared after 3 fixer cycles. Last failure: ${(lastVerify && lastVerify.failureSummary) || '(verifier did not return a result)'}.\n\nCommands run: ${(lastVerify && lastVerify.commandsRun || []).join(', ') || '(unknown)'}\n\nFailures:\n${(lastVerify && lastVerify.failures || []).map(f => `- ${f}`).join('\n') || '(no per-failure detail returned)'}`,
+           cleared }
+}
 
 phase('Audit')
 
@@ -1143,9 +1386,18 @@ for (let cycle = 1; cycle <= 3; cycle++) {
     break
   }
   log(`no-deferral audit cycle ${cycle}: ${audit.findings.length} deferral(s) found; dispatching fixer`)
-  await agent(noDeferralFixerPrompt(audit.findings), {
-    label: `no-deferral-fixer#${cycle}`, phase: 'Audit',
-  })
+  const fixerReport = await dispatchFixerWithCoverage(
+    (f, c) => noDeferralFixerPrompt(f, c),
+    audit.findings,
+    `no-deferral-fixer#${cycle}`,
+    'Audit',
+  )
+  if (fixerReport && fixerReport.status === 'BLOCKED') {
+    const blockedItems = (fixerReport.resolutions || []).filter(r => r.disposition === 'blocked')
+    return { status: 'escalate', kind: 'work-stuck', pass: -1,
+             lastFailure: `No-deferral fixer reported BLOCKED on cycle ${cycle}: ${fixerReport.blockedDetail || '(no detail)'}\n\nBlocked deferrals:\n${blockedItems.map(r => `- finding ${r.index}: ${r.summary || '(no summary)'}`).join('\n') || '(none specified)'}`,
+             cleared }
+  }
   lastFindings = audit.findings
 }
 
@@ -1211,16 +1463,44 @@ return { status: 'complete',
   approach on a halt-claim retry, the remaining-task list on a
   partial-DONE retry. Looping without adding perspective is not a
   fix.
-- **Final verification gate runs every project-prescribed check.**
-  The verifier discovers the command set from the project's own
-  docs (plan / spec / CLAUDE.md / Makefile) rather than the skill
-  hardcoding commands. Build, lint, unit tests, race tests on
-  named race-sensitive packages, integration / scenario tests
-  where the plan's scope touches them. A failure escalates as
-  `work-stuck`; the verifier does not repair, the human decides.
-  The implementer's per-pass tests catch local breakage; this
-  gate catches cross-pass interactions and surfaces a foundational
-  regression that escaped a Falsifier's named scope.
+- **Per-issue accounting at every fixer dispatch.** The interim,
+  no-deferral, and verification fixers all return a structured
+  resolution covering every input finding by 1-based index exactly
+  once — `fixed` (with `summary` + `fileLines` of the edit), or
+  `already-clean` (with cited evidence for why no fix was needed),
+  or `blocked` (with the specific user-ask). The orchestrator
+  validates coverage at the call site via `checkFixerCoverage`;
+  reports missing findings, duplicating indices, or going out of
+  range are rejected, and the fixer is re-dispatched once with the
+  coverage critique. This catches the silent-drop failure mode (a
+  fixer told "fix all 30" reporting "DONE" while having silently
+  left a few unaddressed) — the prose "DONE" is replaced by an
+  index-by-index acknowledgement. A "fixed" disposition that the
+  next independent re-check sees as still present is evidence of
+  self-deception, surfaced by the cycle's residual findings; a
+  "blocked" disposition escalates the corresponding gate
+  immediately (verification + no-deferral) or logs and continues
+  (interim, which is best-effort). The per-pass implementer ↔
+  validator path does not yet use this schema — the validator
+  emits prose critiques, not enumerated findings; tightening that
+  is a separate improvement.
+- **Final verification gate runs every project-prescribed check,
+  and loops with a fixer until clean.** The verifier discovers the
+  command set from the project's own docs (plan / spec / CLAUDE.md
+  / Makefile) rather than the skill hardcoding commands. Build,
+  lint, unit tests, race tests on named race-sensitive packages,
+  integration / scenario tests where the plan's scope touches
+  them. On failure, a dedicated verification fixer agent reads the
+  failure list and repairs the working tree; the verifier re-runs;
+  the loop converges or escalates after 3 cycles. The verifier
+  itself stays a pure detector (it doesn't repair); the loop
+  delegates repair to the fixer. The implementer's per-pass tests
+  catch local breakage; this gate catches cross-pass interactions
+  and surfaces a foundational regression that escaped a
+  Falsifier's named scope. Mechanical failures (a missing build
+  setting, a project-yml omission, a missing module link) clear
+  on the first fixer pass; the escalation budget exists for the
+  pathological case, not the typical one.
 - **No-deferral audit is a gate, not a report.** It loops with a
   fixer dispatch until clean. The closing walk never surfaces a
   "what was deferred and fixed" section — by the time the user
@@ -1234,22 +1514,42 @@ return { status: 'complete',
 - **Never commit; never revert/reset/stash/clean** (binds the skill
   and every agent). Implementers checkpoint with `git add -A`
   (non-destructive); recovery is fix-forward.
-- **The walk-away contract.** A user who runs `/execute-plan`
-  expects to return — possibly hours later — to either a clean
-  completion + closing walk, or a single legitimate escalation
-  waiting for their input. They are not at the keyboard while the
-  run executes. The supervisor self-heals any failure that is not
-  one of the explicit escalations below: most importantly, a
-  `Workflow` launch error (parse error, meta validation, args
-  validation) is **never** a stopping condition — the supervisor
-  diagnoses, fixes, and re-invokes, up to the launch-retry cap in
-  step 4. Stalling silently on a launch error breaks the contract.
-- Escalations are the only return-to-human boundaries: `blocked`
-  (strategist-confirmed credentials/destruction), `work-stuck`
-  (implementer ↔ validator could not converge, the verification
-  gate failed, the no-deferral gate could not be cleared
-  autonomously, or a second halt-claim came in after the
-  strategist intervened), `invalid-plan` (structural — missing
-  falsifier or missing story slug on an acceptance pass — or
-  strategist-confirmed `plan-impossible` / `plan-unintelligible`
-  from the implementer, surfaced with both reports verbatim).
+- **The walk-away contract. The orchestrator owns completion.** A
+  user who runs `/execute-plan` expects to return — possibly hours
+  later — to a working product or feature. They are not at the
+  keyboard while the run executes. The orchestrator (you, the
+  skill agent) is responsible for delivering completion no matter
+  what the workflow engine returns. The engine is a tool whose
+  cycles you drive toward completion, not a contract that bounds
+  your responsibility. An `escalate` result is "here's where I
+  stopped," not "your turn to hand off to the user." The
+  orchestrator self-heals every failure that is not literally
+  impossible to advance — including, but not limited to:
+  - **`Workflow` launch errors** (script parse error, meta
+    validation, args validation) — diagnose, fix, re-invoke, per
+    step 4's launch-retry cap. NEVER a stopping condition.
+  - **`work-stuck` escalations whose `lastFailure` names a
+    concrete, fixable defect** — a build setting, a missing
+    Info.plist, a project-yml omission, a single-line gap a
+    plan task forgot. Read the failure, fix the working tree,
+    resume the workflow with `resumeFromRunId`. The verifier's
+    fixer cycles failing does NOT mean the repair is beyond
+    reach; sometimes one more pair of eyes is what it needed.
+  - **`work-stuck` escalations from in-pass termination whose
+    fix you can make from the validator's critique** — fix the
+    gap, resume.
+  Stalling silently on a fixable failure breaks the contract.
+- **Escalations relay to the user only when the work is literally
+  impossible to advance autonomously.** The bar is high:
+  - `blocked` — credentials or authorized destructive actions
+    only the user can provide. You cannot supply these.
+  - `invalid-plan` — the plan is structurally broken and needs
+    `write-plan` to rewrite. You cannot rewrite the spec/plan
+    autonomously.
+  - `work-stuck` — relays only when the failure requires a
+    decision the user alone can make (architectural rework,
+    irreducible ambiguity in spec intent). In particular, a
+    fixable post-pass gate failure does NOT relay; it gets
+    repaired and resumed (above). "I'm not sure what the right
+    fix is" is not grounds to relay — read the failing files,
+    the spec, the diff, and figure it out.

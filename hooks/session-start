@@ -28,6 +28,14 @@ escape_for_json() {
 escaped=$(escape_for_json "$skill_content")
 context="ok-planner v${plugin_version} (conduct ${conduct_version}) is available. Skills are invoked only when the user types a slash command.\n\n${escaped}"
 
+if [ -f "${PWD}/.ok-planner/design/concepts.md" ]; then
+    concepts_toc=$(cat "${PWD}/.ok-planner/design/concepts.md")
+    escaped_concepts=$(escape_for_json "$concepts_toc")
+    framing="The following is .ok-planner/design/concepts.md from this project — the TOC of project-narrowed nouns. Before defining or invoking any term that appears here, open .ok-planner/design/concepts/<slug>.md and read it; do not paraphrase from prior context."
+    escaped_framing=$(escape_for_json "$framing")
+    context="${context}\n\n---\n\n${escaped_framing}\n\n${escaped_concepts}"
+fi
+
 printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$context"
 
 exit 0
