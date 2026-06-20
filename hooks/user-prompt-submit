@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Re-inject a brief reminder about the active output style every N user prompts.
+# Output styles are loaded once at session start as part of the system prompt;
+# they are not refreshed per turn, so their attentional weight decays as the
+# conversation grows even though the rules are still literally in context.
+# This hook freshens their position so the model notices them again.
+
+REMINDER_EVERY=5
+
+# jq is required (to count entries in the transcript JSONL). If it isn't
+# installed, no-op silently rather than break the user's session.
+if ! command -v jq >/dev/null 2>&1; then
+  exit 0
+fi
+
+input=$(cat)
+
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+
+if [[ -z "$transcript_path" || ! -f "$transcript_path" ]]; then
+  exit 0
+fi
+
+# Count real, top-level, typed user prompts. Exclude tool_result entries
+# (also stored as type=user with .toolUseResult set) and sidechain prompts
+# (subagent invocations live in the same transcript).
+user_count=$(jq -s '[.[] | select(.type == "user" and (.toolUseResult // null) == null and (.isSidechain // false) == false)] | length' "$transcript_path" 2>/dev/null || echo 0)
+
+if ! [[ "$user_count" =~ ^[0-9]+$ ]]; then
+  exit 0
+fi
+
+if (( user_count == 0 || user_count % REMINDER_EVERY != 0 )); then
+  exit 0
+fi
+
+reminder="Conduct reminder (every ${REMINDER_EVERY} prompts): your active output style is still loaded in your system prompt, but its attentional weight has decayed as turns accumulated. Re-read it before composing this response. If ok-conduct is the active style, the rules that drift fastest are \"Compose in full, then send one idea per turn\" (compose freely, then send only the first complete idea — queue the rest for the next turn; if your draft has headers, cut there; an idea is usually one paragraph) and \"Lists stay tight\" (no enumerated walls)."
+
+jq -n --arg ctx "$reminder" '{
+  hookSpecificOutput: {
+    hookEventName: "UserPromptSubmit",
+    additionalContext: $ctx
+  }
+}'
+
+exit 0

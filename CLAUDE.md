@@ -23,6 +23,8 @@ The plugin lives at the repo root rather than under `plugins/<name>/`; `marketpl
 
 The `SessionStart` hook in `hooks/session-start` reads `skills/ok-planner/SKILL.md` at session start and injects its contents as `additionalContext` via stdout JSON. It also reads the installed plugin version (from `.claude-plugin/plugin.json`) and the conduct version (from the `Conduct version:` line in `output-styles/ok-conduct.md`) and surfaces both in the opening line of the injected context. It uses a hand-rolled `escape_for_json` function — any changes to that script must preserve valid JSON output (test by running the script directly; it should emit a parseable JSON object).
 
+The `UserPromptSubmit` hook in `hooks/user-prompt-submit` exists to fight a specific drift: output styles are loaded once at session start as part of the system prompt and are **not** re-injected per turn, so their attentional weight decays as the conversation grows even though the rules are still literally in context. Every Nth user prompt (currently N=5), this hook emits a brief `additionalContext` reminder pointing the model back at the active output style — refreshing the rules' position in attention without paying the tokens of re-stating them. It counts real user prompts by parsing the transcript JSONL pointed at by `transcript_path` on stdin: entries with `type == "user"`, no `toolUseResult`, and `isSidechain == false` (filtering out tool-result entries and subagent prompts that share the same `type`). It depends on `jq`; if `jq` isn't installed, or `transcript_path` is missing or unreadable, the hook no-ops silently rather than break the session.
+
 ## How skills are wired
 
 Every `SKILL.md` starts with YAML frontmatter:
@@ -75,4 +77,4 @@ Cutting a release: the project-local `/release` skill (`.claude/skills/release/S
 
 - Never commit `.claude/settings.local.json` — it is gitignored.
 - Do not create `.ok-planner/specs/` or `.ok-planner/plans/` files in this repo unless you are dogfooding a skill — those paths are conventions the skills write into *consumer* projects, not artifacts that belong here.
-- There are no `package.json` files and no JS build — skills are pure markdown and the one hook is bash. Do not add Node tooling unless a skill actually needs it.
+- There are no `package.json` files and no JS build — skills are pure markdown and the hooks are bash. Do not add Node tooling unless a skill actually needs it.
