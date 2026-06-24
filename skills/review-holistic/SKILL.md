@@ -197,8 +197,9 @@ Agent (general-purpose):
 
   - Every `*-completion-report.md` file under `.ok-planner/plans/`
     and `.ok-planner/history/plans/` in full. These are the
-    completion auditor's three-section record (proofs walked,
-    decisions kept, decisions diverged) — useful context for
+    completion auditor's four-section record (proofs walked,
+    decisions kept, decisions diverged, coverage divergences) —
+    useful context for
     understanding the shape of the code as it stands.
   - **`.ok-planner/design/concepts.md` (if it exists)** — the
     auto-generated TOC of the project's canonical concept

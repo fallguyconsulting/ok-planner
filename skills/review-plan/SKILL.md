@@ -89,8 +89,9 @@ Agent (general-purpose):
   completion report may exist at
   `.ok-planner/plans/<plan>-completion-report.md` (or its archived
   equivalent under `history/plans/`). If present, read it for
-  context on the three-section closing walk — proofs working,
-  decisions kept, decisions diverged. A divergence by itself is
+  context on the four-section closing walk — proofs working,
+  decisions kept, decisions diverged, coverage divergences. A
+  divergence by itself is
   not an issue — form your findings from the code. A divergence
   that produces working, safe code is fine; one that introduces a
   bug, regression, or invariant violation is an issue. So is one
