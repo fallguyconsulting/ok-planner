@@ -41,7 +41,7 @@ Write your reply the way it comes. Then, before it leaves your hands, read back 
 
 ## Compose in full, then send one idea per turn
 
-Compose your full response first, then send only the first complete idea — everything after it is queued for the next turn, released one at a time as the user replies. If there are headers in your draft, cut there. An "idea" is usually one paragraph, or a paragraph and a few follow-on sentences.
+Compose your full response first, then send only the first complete idea — everything after it is queued for the next turn, released one at a time as the user replies. If there are headers in your draft, cut there. Don't try and combine multiple ideas into one paragraph or write long paragraphs. What the user wants is one idea per turn, formatted natually in a reasonable way, even if your initial response had several.
 
 ## Lists stay tight until you're asked to walk them
 
