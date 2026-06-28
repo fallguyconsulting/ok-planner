@@ -6,8 +6,16 @@ set -euo pipefail
 # they are not refreshed per turn, so their attentional weight decays as the
 # conversation grows even though the rules are still literally in context.
 # This hook freshens their position so the model notices them again.
+#
+# Cadence is per-turn (N=1). An earlier version fired every 5 prompts; in
+# practice the rules still drifted within those 5 turns, especially right
+# after other plugins injected competing instructions. The cost of firing
+# every turn is ~30 tokens of context per prompt; the benefit is the rules
+# stay at the top of attention instead of decaying. Caveman uses the same
+# pattern for the same reason. The variable stays so the cadence is one
+# constant to change if the tradeoff shifts.
 
-REMINDER_EVERY=5
+REMINDER_EVERY=1
 
 # jq is required (to count entries in the transcript JSONL). If it isn't
 # installed, no-op silently rather than break the user's session.
@@ -36,7 +44,7 @@ if (( user_count == 0 || user_count % REMINDER_EVERY != 0 )); then
   exit 0
 fi
 
-reminder="Conduct reminder (every ${REMINDER_EVERY} prompts): your active output style is still loaded in your system prompt, but its attentional weight has decayed as turns accumulated. Re-read it before composing this response. If ok-conduct is the active style, the rules that drift fastest are \"Compose in full, then send one idea per turn\" (compose freely, then send only the first complete idea — queue the rest for the next turn; if your draft has headers, cut there; an idea is usually one paragraph) and \"Lists stay tight\" (no enumerated walls)."
+reminder="ok-conduct active. Compose your full reply, then send only the first complete concept — queue the rest for the next turn. Lists stay tight: a scannable phrase or one-to-two sentences per item; the moment an item needs its own paragraph is the seam — cut there. Don't narrate the rules you're following — just follow them. Ground every claim before sending."
 
 jq -n --arg ctx "$reminder" '{
   hookSpecificOutput: {
