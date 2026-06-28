@@ -349,11 +349,12 @@ Map out files before defining tasks. Design units with clear boundaries. Each fi
 
 **Pass count guidance:**
 
-- Use as many passes as you need, but **batch ambitiously**. Implementers have ~1M-token contexts and comfortably absorb multiple stories, multiple subsystems' worth of reading, and several verification runs in one dispatch. Pass count scales with the spec's *estimated token cost* (see "Estimate implementation tokens"), not with its story or task count. In general, fewer passes that get more done with one context are preferred to many small passes.
-- There is no upper cap on pass count, and a high count is never a signal to split the spec or write multiple plans — but a high count IS a signal to check for under-batching. Every pass boundary costs a full context re-acquisition by a fresh implementer plus a fresh validator dispatch; two passes that read the same files, the same spec sections, or boot the same test stack are paying that overhead twice for no independence gain.
-- Don't pad the count: size passes by token budget and coherence, never toward a target number.
+- **Target ~100–150k tokens of implementer work per pass.** Implementers nominally have a 1M-token context, but observed effectiveness degrades after roughly 150k — the subagent gets lazy, skims, drops tasks, writes thinner code, and increasingly fails the validator. 150k is the *working* ceiling, not 1M. Bias toward smaller, well-scoped passes; ~60–100k is a healthy size, ~150k is a "this pass is getting full" warning, ~200k+ is "this pass should split."
+- Pass count scales with the spec's *estimated token cost* (see "Estimate implementation tokens"), not with its story or task count. There is no upper cap on pass count, and a high count is never a signal to split the spec or write multiple plans. A spec that needs 20 passes gets 20 passes.
+- Within the budget, **batch coherently**. Every pass boundary costs a full context re-acquisition by a fresh implementer plus a fresh validator dispatch; two passes that read the same files, the same spec sections, or boot the same test stack are paying that overhead twice for no independence gain. But "batching to reduce overhead" stops at the budget ceiling — merging two 90k passes into one 180k pass is a regression, not an optimization, because the merged pass crosses the laziness threshold.
+- Don't pad the count: size passes by token budget and coherence, never toward a target number. A 30k pass that's a coherent unit is fine.
 
-**Pass sizing:** Size each pass by its **estimated implementation tokens**, not its task count. Split only when a pass's estimate approaches the implementer's context ceiling (~1M tokens, leaving headroom for verification output). Merge passes that touch the same files, read the same context, or share a test-stack bring-up — shared context acquisition is the strongest merge signal.
+**Pass sizing:** Size each pass by its **estimated implementation tokens**, not its task count. Target ~100–150k per pass; split when the estimate crosses ~150k. Merge passes that touch the same files, read the same context, or share a test-stack bring-up — shared context acquisition is the strongest merge signal — but only when the merged pass stays under the ~150k working ceiling.
 
 ## Estimate implementation tokens (per pass)
 
@@ -363,7 +364,9 @@ Pass boundaries are token decisions, so the planner must run the numbers. The es
 - **Verification output** — the dominant cost in test-heavy projects. A unit-test run is cheap; a testcontainers/integration suite that boots real infrastructure produces thousands of tokens per invocation, and a pass typically runs its suite 2–3 times (fail, fix, confirm). Count the runs the pass's steps prescribe.
 - **Edit volume** — usually the smallest bucket; estimate from the diff the tasks imply.
 
-Do **not** write the estimates into the plan — no `Est. tokens` line in pass headers, no total in the plan header. An implementer who sees a number anchors on it ("I've spent my budget, wrap up"), and a reviewer can't verify it anyway; the plan carries the *result* of the estimation (the pass boundaries), not the arithmetic. Estimates are coarse — order-of-magnitude honesty, not precision — but they force the batching question at planning time: a pass estimated at 60k sitting next to another 60k pass over the same files is one 90k pass (the shared context acquisition is paid once), and the plan should say so by merging them. Verification commands also follow the budget: per-pass verification covers the touched packages; the full repo-wide suite runs once at `execute-plan`'s final verification gate, not per pass — don't prescribe whole-tree runs inside every pass.
+The target is ~100–150k per pass. A pass estimated above ~150k crosses the implementer-laziness threshold and should split; a pass estimated below ~60k that shares context with a neighbor wants merging (subject to the 150k ceiling on the merged result).
+
+Do **not** write the estimates into the plan — no `Est. tokens` line in pass headers, no total in the plan header. An implementer who sees a number anchors on it ("I've spent my budget, wrap up"), and a reviewer can't verify it anyway; the plan carries the *result* of the estimation (the pass boundaries), not the arithmetic. Estimates are coarse — order-of-magnitude honesty, not precision — but they force the batching question at planning time. Verification commands also follow the budget: per-pass verification covers the touched packages; the full repo-wide suite runs once at `execute-plan`'s final verification gate, not per pass — don't prescribe whole-tree runs inside every pass.
 
 **Every pass leaves the tree working.** Each pass must end with the
 codebase in a working state — the implementer of the next pass should
@@ -641,6 +644,76 @@ Agent (general-purpose):
     credentials the plan does not provide. Manual checks belong
     in a final "Manual checks after completion" section, never
     inside a task.
+
+  ## Plan-internal mechanical coherence (blocking)
+
+  Grounding above checks the plan against the codebase. This
+  check is different: walk the plan's tasks in order as if you
+  were the implementer executing them verbatim, and verify the
+  plan does not self-sabotage. The recurring failure mode is a
+  contradiction between adjacent tasks of the same plan — both
+  passages individually look fine, but their composition leaves
+  the tree broken or the falsifier unsatisfiable. The validator
+  catches these at execution time and burns a re-dispatch; the
+  reviewer catches them at plan time for free.
+
+  Concretely flag:
+
+  - **Scripts referencing not-yet-installed tools.** A task that
+    creates a `package.json` / `Makefile` / `pyproject.toml` /
+    similar with scripts invoking binaries (e.g. `vite build`,
+    `pytest`, `cargo run`) when the plan does not install those
+    binaries until a later task or pass — combined with any
+    earlier-defined aggregate / cascade / `--workspaces` invocation
+    that would fan into the new script — exits non-zero from day
+    one of the pass. Walk every script the plan creates; for each
+    binary it invokes, find the install step. If the install step
+    is in a later pass, the script must be a no-op or absent until
+    that pass. Same hazard for shared lint / typecheck / test
+    aggregators that auto-discover workspace members.
+  - **Falsifier-vs-tasks consistency per pass.** For each pass's
+    `Falsifier:`, read every task in the pass and check that the
+    tasks supply every artifact, configuration, and observable
+    state the falsifier checks. A pass falsifier of "all three
+    services report healthy within 60s" with task content that
+    defines healthchecks for only two of the three services is a
+    self-defeating pass — the implementer follows the tasks
+    literally and lands on a red falsifier. Same shape: a
+    falsifier naming an endpoint the pass's tasks don't register,
+    a falsifier naming a file the pass's tasks don't create, a
+    falsifier naming a metric the pass's tasks don't emit.
+  - **Project-rule awareness surfaced to the implementer.** Read
+    every file under `.claude/rules/` and any project-root
+    CLAUDE.md. Identify constraints that will mechanically reject
+    or block the implementer's work — comment-hygiene lints with
+    PostToolUse hooks, mandatory typecheck-before-done sequences,
+    forbidden patterns (no `--no-verify`, no destructive git), no-
+    backwards-compat windows, naming conventions enforced by lint.
+    For each binding constraint: verify the plan either (a) names
+    it in a plan-wide preamble / pass header so the implementer
+    plans around it, or (b) prescribes the explicit opt-in / config
+    file the rule's exemption mechanism requires. A plan silent on
+    a project rule the implementer is about to violate is blocking
+    — the implementer will burn cycles fighting hooks the planner
+    knew about.
+  - **Cross-task ordering hazards.** Within a pass and across
+    adjacent passes, flag a task whose successful completion
+    depends on state an earlier task removes, renames, or replaces
+    without the dependent task being updated. Same for tests: a
+    test added in Task N that exercises behavior Task N+1
+    refactors away.
+  - **"Every pass leaves the tree working" satisfied per pass.**
+    Walk the tasks of each pass; if the pass's final task leaves
+    the tree in a state where the project's standard build /
+    typecheck / test command would exit non-zero (excluding test
+    failures the next pass is intended to fix, which are not a
+    supported pattern — see the "every pass leaves the tree
+    working" rule), flag it.
+
+  The simulation does not need to be exhaustive — read each task,
+  ask "if the implementer ran the prior tasks and then this one,
+  what's the state?" One pass through the plan with that frame
+  catches the cluster.
 
   ## Pass decomposition checks
 
